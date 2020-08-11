@@ -1,0 +1,40 @@
+[package]
+name = "lsp-ws-proxy"
+version = "0.1.0"
+authors = ["kazk <kazk.dev@gmail.com>"]
+edition = "2018"
+license = "MIT"
+description = "WebSocket proxy for Language Server"
+homepage = "https://github.com/qualified/lsp-ws-proxy"
+repository = "https://github.com/qualified/lsp-ws-proxy"
+readme = "README.md"
+keywords = ["lsp", "websocket"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+argh = "0.1"
+async-net = "0.1"
+async-tungstenite = "0.8"
+bytes = "0.5"
+futures-io = "0.3"
+futures-timer = "3.0"
+futures-util = "0.3"
+futures_codec = "0.4"
+log = "0.4"
+lsp-types = "0.79"
+nom = { version = "5.1", default-features = false, features = ["std"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+smol = "0.3"
+env_logger = "0.7"
+
+[dev-dependencies]
+
+[profile.release]
+# Turn Link Time Optimization on to reduce the binary size.
+# See https://doc.rust-lang.org/cargo/reference/profiles.html#lto
+lto = true
+
+# Strip symbols from the final build (nightly)
+# See https://github.com/rust-lang/cargo/issues/3483#issuecomment-631395566
+# strip = "symbols"
