@@ -13,13 +13,13 @@ jobs:
         include:
           - name: linux
             os: ubuntu-latest
-            path: target/release/lsp-ws-proxy
+            bin_file: lsp-ws-proxy
           - name: macos
             os: macos-latest
-            path: target/release/lsp-ws-proxy
+            bin_file: lsp-ws-proxy
           - name: windows
             os: windows-latest
-            path: target/release/lsp-ws-proxy.exe
+            bin_file: lsp-ws-proxy.exe
 
     steps:
       - uses: actions/checkout@v2
@@ -41,7 +41,7 @@ jobs:
           command: build
           args: --release --locked
 
-      - run: tar czf ${{ matrix.path }}.tar.gz ${{ matrix.path }}
+      - run: cd target/release && tar czf ${{ matrix.bin_file }}.tar.gz ${{ matrix.bin_file }}
 
       - name: Upload Binary
         uses: actions/upload-release-asset@v1
@@ -49,14 +49,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ${{ matrix.path }}.tar.gz
+          asset_path: target/release/${{ matrix.bin_file }}.tar.gz
           asset_name: lsp-ws-proxy_${{ matrix.name }}.tar.gz
           asset_content_type: application/octet-stream
 
   upload_musl:
     runs-on: ubuntu-latest
     env:
-      BINARY_PATH: target/x86_64-unknown-linux-musl/release/lsp-ws-proxy
+      TARGET: x86_64-unknown-linux-musl
     steps:
       - uses: actions/checkout@v2
       - uses: actions/cache@v2
@@ -72,7 +72,7 @@ jobs:
           override: true
           toolchain: stable
           profile: minimal
-          target: x86_64-unknown-linux-musl
+          target: ${{ env.TARGET }}
 
       - uses: actions-rs/cargo@v1
         with:
@@ -80,7 +80,7 @@ jobs:
           command: build
           args: --release --locked --target x86_64-unknown-linux-musl
 
-      - run: tar czf ${{ env.BINARY_PATH }}.tar.gz ${{ env.BINARY_PATH }}
+      - run: cd target/${{ env.TARGET }}/release && tar czf lsp-ws-proxy.tar.gz lsp-ws-proxy
 
       - name: Upload Binary
         uses: actions/upload-release-asset@v1
@@ -88,6 +88,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ${{ env.BINARY_PATH }}.tar.gz
+          asset_path: taget/${{ env.TARGET }}/release/lsp-ws-proxy.tar.gz
           asset_name: lsp-ws-proxy_linux-musl.tar.gz
           asset_content_type: application/octet-stream
