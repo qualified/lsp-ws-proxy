@@ -9,7 +9,8 @@ $ lsp-ws-proxy --help
 
 Usage: lsp-ws-proxy [-p <port>] [-t <timeout>]
 
-Start WebSocket proxy for the LSP Server. Anything after the option delimiter is used to start the server.
+Start WebSocket proxy for the LSP Server.
+Anything after the option delimiter is used to start the server.
 
 Options:
   -p, --port        port to listen on (default: 9999)
