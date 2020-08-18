@@ -9,11 +9,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
         include:
-          - name: linux-musl
-            os: ubuntu-latest
-            path: target/x86_64-unknown-linux-musl/release/lsp-ws-proxy
           - name: linux
             os: ubuntu-latest
             path: target/release/lsp-ws-proxy
@@ -32,30 +29,14 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-${{ matrix.name }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
 
-      - if: ${{ matrix.name == 'linux-musl' }}
-        uses: actions-rs/toolchain@v1
+      - uses: actions-rs/toolchain@v1
         with:
           override: true
           toolchain: stable
           profile: minimal
-          target: x86_64-unknown-linux-musl
-      - if: ${{ matrix.name == 'linux-musl' }}
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: build
-          args: --release --locked --target x86_64-unknown-linux-musl
-
-      - if: ${{ matrix.name != 'linux-musl' }}
-        uses: actions-rs/toolchain@v1
-        with:
-          override: true
-          toolchain: stable
-          profile: minimal
-      - if: ${{ matrix.name != 'linux-musl' }}
-        uses: actions-rs/cargo@v1
+      - uses: actions-rs/cargo@v1
         with:
           command: build
           args: --release --locked
@@ -70,4 +51,43 @@ jobs:
           upload_url: ${{ github.event.release.upload_url }}
           asset_path: ${{ matrix.path }}.tar.gz
           asset_name: lsp-ws-proxy_${{ matrix.name }}.tar.gz
+          asset_content_type: application/octet-stream
+
+  upload_musl:
+    runs-on: ubuntu-latest
+    env:
+      BINARY_PATH: target/x86_64-unknown-linux-musl/release/lsp-ws-proxy
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-musl-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          override: true
+          toolchain: stable
+          profile: minimal
+          target: x86_64-unknown-linux-musl
+
+      - uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: --release --locked --target x86_64-unknown-linux-musl
+
+      - run: tar czf ${{ env.BINARY_PATH }}.tar.gz ${{ env.BINARY_PATH }}
+
+      - name: Upload Binary
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ${{ env.BINARY_PATH }}.tar.gz
+          asset_name: lsp-ws-proxy_linux-musl.tar.gz
           asset_content_type: application/octet-stream
