@@ -17,8 +17,19 @@ mod lsp;
 // TODO Synchronize files
 
 #[derive(FromArgs)]
-/// Start WebSocket proxy for the LSP Server.
-/// Anything after the option delimiter is used to start the server.
+// Using block doc comments so that `argh` preserves newlines in help output.
+// We need to also write block doc comments without leading space.
+/**
+Start WebSocket proxy for the LSP Server.
+Anything after the option delimiter is used to start the server.
+
+Examples:
+  lsp-ws-proxy -- langserver
+  lsp-ws-proxy -- langserver --stdio
+  lsp-ws-proxy --listen 8888 -- langserver --stdio
+  lsp-ws-proxy --listen 0.0.0.0:8888 -- langserver --stdio
+  lsp-ws-proxy -l 8888 -- langserver --stdio
+*/
 struct Options {
     /// show version and exit
     #[argh(switch, short = 'v')]
@@ -174,14 +185,8 @@ fn get_opts_and_command() -> (Options, Vec<String>) {
 
     // Parse options or show help and exit.
     let opts = Options::from_args(&[strs[0]], &strs[1..]).unwrap_or_else(|early_exit| {
-        // Show generated help message and some examples.
+        // show generated help message
         println!("{}", early_exit.output);
-        println!("Examples:");
-        println!("  lsp-ws-proxy -- langserver");
-        println!("  lsp-ws-proxy -- langserver --stdio");
-        println!("  lsp-ws-proxy --listen 8888 -- langserver --stdio");
-        println!("  lsp-ws-proxy --listen 0.0.0.0:8888 -- langserver --stdio");
-        println!("  lsp-ws-proxy -l 8888 -- langserver --stdio");
         std::process::exit(match early_exit.status {
             Ok(()) => 0,
             Err(()) => 1,

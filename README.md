@@ -7,15 +7,10 @@ Single binary WebSocket proxy for Language Server.
 ```
 $ lsp-ws-proxy --help
 
-Usage: lsp-ws-proxy [-l <listen>] [-t <timeout>]
+Usage: lsp-ws-proxy [-v] [-l <listen>] [-t <timeout>]
 
 Start WebSocket proxy for the LSP Server.
 Anything after the option delimiter is used to start the server.
-
-Options:
-  -l, --listen      address or localhost's port to listen on (default: 9999)
-  -t, --timeout     inactivity timeout in seconds
-  --help            display usage information
 
 Examples:
   lsp-ws-proxy -- langserver
@@ -23,6 +18,12 @@ Examples:
   lsp-ws-proxy --listen 8888 -- langserver --stdio
   lsp-ws-proxy --listen 0.0.0.0:8888 -- langserver --stdio
   lsp-ws-proxy -l 8888 -- langserver --stdio
+
+Options:
+  -v, --version     show version and exit
+  -l, --listen      address or localhost's port to listen on (default: 9999)
+  -t, --timeout     inactivity timeout in seconds
+  --help            display usage information
 ```
 
 ## Features
