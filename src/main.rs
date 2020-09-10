@@ -1,11 +1,8 @@
-use std::{
-    process::{Command, Stdio},
-    str::FromStr,
-    time::Duration,
-};
+use std::{process::Stdio, str::FromStr, time::Duration};
 
 use argh::FromArgs;
 use async_net::TcpListener;
+use async_process::{Child, Command};
 use async_tungstenite::accept_async;
 use async_tungstenite::tungstenite as ws;
 use futures_timer::Delay;
@@ -13,7 +10,6 @@ use futures_util::{
     future::{select, Either},
     SinkExt, StreamExt,
 };
-use smol::Unblock;
 
 mod lsp;
 
@@ -64,11 +60,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .spawn()?;
-            let stdin = Unblock::new(lang_server.stdin.take().unwrap());
-            let stdout = Unblock::new(lang_server.stdout.take().unwrap());
-
-            let mut server_send = lsp::framed::writer(stdin);
-            let mut server_recv = lsp::framed::reader(stdout);
+            let mut server_send = lsp::framed::writer(lang_server.stdin.take().unwrap());
+            let mut server_recv = lsp::framed::reader(lang_server.stdout.take().unwrap());
             let (mut client_send, mut client_recv) = ws_stream.split();
 
             let mut client_msg = client_recv.next();
@@ -138,7 +131,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // Connection Closed
                         Either::Left((None, _)) => {
                             log::info!("Connection Closed");
-                            clean_up_server(&mut lang_server);
+                            ensure_server_exited(&mut lang_server).await?;
                             break;
                         }
 
@@ -146,7 +139,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         Either::Right((None, _)) => {
                             log::error!("Server process exited unexpectedly");
                             client_send.send(ws::Message::Close(None)).await?;
-                            clean_up_server(&mut lang_server);
+                            ensure_server_exited(&mut lang_server).await?;
                             break;
                         }
                     },
@@ -155,7 +148,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Either::Right(_) => {
                         log::info!("Inactivity timeout reached. Closing");
                         client_send.send(ws::Message::Close(None)).await?;
-                        clean_up_server(&mut lang_server);
+                        ensure_server_exited(&mut lang_server).await?;
                         break;
                     }
                 }
@@ -245,32 +238,51 @@ fn inspect_message_from_server(text: &str) {
     }
 }
 
-fn clean_up_server(lang_server: &mut std::process::Child) {
-    match lang_server.try_wait() {
-        Ok(Some(status)) => {
-            if let Some(code) = status.code() {
-                log::info!("Server exited with code: {}", code);
-            } else {
-                log::info!("Server process terminated by signal");
-            }
+async fn ensure_server_exited(lang_server: &mut Child) -> Result<(), std::io::Error> {
+    match lang_server.try_status()? {
+        Some(status) => {
+            log::info!("Language Server exited");
+            log::info!("Status: {}", status);
+            Ok(())
         }
 
-        Ok(None) => {
-            log::info!("Server exited with unknown status");
-        }
+        None => {
+            log::info!("Language Server is still alive. Waiting 3s before killing.");
+            let timeout = Delay::new(Duration::from_secs(3));
+            let status = lang_server.status();
+            let status = Box::pin(status);
+            match select(status, timeout).await {
+                Either::Left((Ok(status), _)) => {
+                    log::info!("Language Server exited");
+                    log::info!("Status: {}", status);
+                    Ok(())
+                }
+                Either::Left((Err(err), _)) => Err(err),
 
-        Err(err) => {
-            log::error!("Server did not exit: {}", err);
-            match lang_server.kill() {
-                Ok(_) => log::info!("Successfully killed server"),
-                Err(err) => match err.kind() {
-                    std::io::ErrorKind::InvalidInput => {
-                        log::info!("Failed to kill server. Already exited.");
+                Either::Right(_) => {
+                    log::info!("Killing Language Server...");
+                    match lang_server.kill() {
+                        Ok(_) => {
+                            log::info!("Killed Language Server");
+                            log::info!("Status: {}", lang_server.status().await?);
+                            Ok(())
+                        }
+
+                        Err(err) => match err.kind() {
+                            // The process had already exited
+                            std::io::ErrorKind::InvalidInput => {
+                                log::info!("Language Server had already exited");
+                                log::info!("Status: {}", lang_server.status().await?);
+                                Ok(())
+                            }
+
+                            _ => {
+                                log::error!("Failed to kill Language Server: {}", err);
+                                Err(err)
+                            }
+                        },
                     }
-                    _ => {
-                        log::error!("Failed to kill server: {}", err);
-                    }
-                },
+                }
             }
         }
     }
