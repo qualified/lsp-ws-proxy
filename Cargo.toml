@@ -13,12 +13,12 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 argh = "0.1"
+async-io = "1.0"
 async-net = "1.2"
 async-process = "1.0"
 async-tungstenite = "0.8"
 bytes = "0.5"
 futures-io = "0.3"
-futures-timer = "3.0"
 futures-util = "0.3"
 futures_codec = "0.4"
 log = "0.4"
