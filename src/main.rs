@@ -20,6 +20,9 @@ mod lsp;
 /// Start WebSocket proxy for the LSP Server.
 /// Anything after the option delimiter is used to start the server.
 struct Options {
+    /// show version and exit
+    #[argh(switch, short = 'v')]
+    version: bool,
     /// address or localhost's port to listen on (default: 9999)
     #[argh(
         option,
@@ -184,6 +187,11 @@ fn get_opts_and_command() -> (Options, Vec<String>) {
             Err(()) => 1,
         })
     });
+
+    if opts.version {
+        println!("{} v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
 
     if splitted.len() != 2 {
         panic!("Command to start the server is required. See --help for examples.");
