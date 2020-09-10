@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Duration::from_secs(NO_TIMEOUT)
     };
 
-    smol::run(async {
+    smol::block_on(async {
         let addr = format!("127.0.0.1:{}", opts.port);
         let listener = TcpListener::bind(&addr).await.expect("Failed to bind");
         log::info!("Listening on: {}", addr);
