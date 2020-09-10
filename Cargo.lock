@@ -593,6 +593,7 @@ version = "0.1.1"
 dependencies = [
  "argh",
  "async-net",
+ "async-process",
  "async-tungstenite",
  "bytes",
  "env_logger",
