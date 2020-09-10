@@ -1,11 +1,11 @@
 use std::{process::Stdio, str::FromStr, time::Duration};
 
 use argh::FromArgs;
+use async_io::Timer;
 use async_net::TcpListener;
 use async_process::{Child, Command};
 use async_tungstenite::accept_async;
 use async_tungstenite::tungstenite as ws;
-use futures_timer::Delay;
 use futures_util::{
     future::{select, Either},
     SinkExt, StreamExt,
@@ -67,7 +67,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let mut client_msg = client_recv.next();
             let mut server_msg = server_recv.next();
             // timer for inactivity timeout. It's reset whenever a message comes in.
-            let mut timer = Delay::new(timeout);
+            let mut timer = Timer::after(timeout);
             loop {
                 match select(select(client_msg, server_msg), timer).await {
                     Either::Left((either, p_timer)) => match either {
@@ -79,7 +79,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             client_msg = client_recv.next();
                             server_msg = p_server_msg;
                             timer = p_timer;
-                            timer.reset(timeout);
+                            timer.set_after(timeout);
                         }
 
                         // Close message from client
@@ -89,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             client_msg = client_recv.next();
                             server_msg = p_server_msg;
                             timer = p_timer;
-                            timer.reset(timeout);
+                            timer.set_after(timeout);
                         }
 
                         // Ignore any other message types from client. Inactivity timer is not rest.
@@ -107,7 +107,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             client_msg = p_client_msg;
                             server_msg = server_recv.next();
                             timer = p_timer;
-                            timer.reset(timeout);
+                            timer.set_after(timeout);
                         }
 
                         // Error with WebSocket message
@@ -116,7 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             client_msg = client_recv.next();
                             server_msg = p_server_msg;
                             timer = p_timer;
-                            timer.reset(timeout);
+                            timer.set_after(timeout);
                         }
 
                         // Error with server message
@@ -125,7 +125,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             client_msg = p_client_msg;
                             server_msg = server_recv.next();
                             timer = p_timer;
-                            timer.reset(timeout);
+                            timer.set_after(timeout);
                         }
 
                         // Connection Closed
@@ -248,7 +248,7 @@ async fn ensure_server_exited(lang_server: &mut Child) -> Result<(), std::io::Er
 
         None => {
             log::info!("Language Server is still alive. Waiting 3s before killing.");
-            let timeout = Delay::new(Duration::from_secs(3));
+            let timeout = Timer::after(Duration::from_secs(3));
             let status = lang_server.status();
             let status = Box::pin(status);
             match select(status, timeout).await {
