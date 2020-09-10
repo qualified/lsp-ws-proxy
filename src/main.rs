@@ -2,7 +2,7 @@ use std::{process::Stdio, str::FromStr, time::Duration};
 
 use argh::FromArgs;
 use async_io::Timer;
-use async_net::TcpListener;
+use async_net::{SocketAddr, TcpListener};
 use async_process::{Child, Command};
 use async_tungstenite::accept_async;
 use async_tungstenite::tungstenite as ws;
@@ -20,9 +20,14 @@ mod lsp;
 /// Start WebSocket proxy for the LSP Server.
 /// Anything after the option delimiter is used to start the server.
 struct Options {
-    /// port to listen on (default: 9999)
-    #[argh(option, short = 'p', default = "9999")]
-    port: usize,
+    /// address or localhost's port to listen on (default: 9999)
+    #[argh(
+        option,
+        short = 'l',
+        default = "String::from(\"127.0.0.1:9999\")",
+        from_str_fn(parse_listen)
+    )]
+    listen: String,
     // TODO Using seconds for now for simplicity. Maybe accept duration strings like `1h` instead.
     /// inactivity timeout in seconds
     #[argh(option, short = 't', default = "0")]
@@ -44,9 +49,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     smol::block_on(async {
-        let addr = format!("127.0.0.1:{}", opts.port);
-        let listener = TcpListener::bind(&addr).await.expect("Failed to bind");
-        log::info!("Listening on: {}", addr);
+        let listener = TcpListener::bind(&opts.listen)
+            .await
+            .expect("Failed to bind");
+        log::info!("Listening on {}", listener.local_addr()?);
 
         // Only accept single connection. Others will hang.
         if let Ok((stream, _)) = listener.accept().await {
@@ -170,8 +176,9 @@ fn get_opts_and_command() -> (Options, Vec<String>) {
         println!("Examples:");
         println!("  lsp-ws-proxy -- langserver");
         println!("  lsp-ws-proxy -- langserver --stdio");
-        println!("  lsp-ws-proxy --port 8888 -- langserver --stdio");
-        println!("  lsp-ws-proxy -p 8888 -- langserver --stdio");
+        println!("  lsp-ws-proxy --listen 8888 -- langserver --stdio");
+        println!("  lsp-ws-proxy --listen 0.0.0.0:8888 -- langserver --stdio");
+        println!("  lsp-ws-proxy -l 8888 -- langserver --stdio");
         std::process::exit(match early_exit.status {
             Ok(()) => 0,
             Err(()) => 1,
@@ -285,5 +292,17 @@ async fn ensure_server_exited(lang_server: &mut Child) -> Result<(), std::io::Er
                 }
             }
         }
+    }
+}
+
+fn parse_listen(value: &str) -> Result<String, String> {
+    // If a number is given, treat it as a localhost's port number
+    if value.chars().all(|c| c.is_ascii_digit()) {
+        return Ok(format!("127.0.0.1:{}", value));
+    }
+
+    match value.parse::<SocketAddr>() {
+        Ok(_) => Ok(String::from(value)),
+        Err(_) => Err(format!("{} cannot be parsed as SocketAddr", value)),
     }
 }
