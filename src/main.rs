@@ -1,20 +1,20 @@
 use std::{process::Stdio, str::FromStr, time::Duration};
 
 use argh::FromArgs;
+use async_fs::File;
 use async_io::Timer;
 use async_net::{SocketAddr, TcpListener};
 use async_process::{Child, Command};
-use async_tungstenite::accept_async;
-use async_tungstenite::tungstenite as ws;
+use async_tungstenite::{accept_async, tungstenite as ws};
 use futures_util::{
     future::{select, Either},
-    SinkExt, StreamExt,
+    AsyncWriteExt, SinkExt, StreamExt,
 };
 
+mod client;
 mod lsp;
 
 // TODO Remap Document URIs
-// TODO Synchronize files
 
 #[derive(FromArgs)]
 // Using block doc comments so that `argh` preserves newlines in help output.
@@ -31,9 +31,6 @@ Examples:
   lsp-ws-proxy -l 8888 -- langserver --stdio
 */
 struct Options {
-    /// show version and exit
-    #[argh(switch, short = 'v')]
-    version: bool,
     /// address or localhost's port to listen on (default: 9999)
     #[argh(
         option,
@@ -46,6 +43,12 @@ struct Options {
     /// inactivity timeout in seconds
     #[argh(option, short = 't', default = "0")]
     timeout: u64,
+    /// write text document to disk on save
+    #[argh(switch, short = 's')]
+    sync: bool,
+    /// show version and exit
+    #[argh(switch, short = 'v')]
+    version: bool,
 }
 
 // Large enough value used to disable inactivity timeout.
@@ -82,7 +85,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .spawn()?;
             let mut server_send = lsp::framed::writer(lang_server.stdin.take().unwrap());
             let mut server_recv = lsp::framed::reader(lang_server.stdout.take().unwrap());
-            let (mut client_send, mut client_recv) = ws_stream.split();
+            let (mut client_send, client_recv) = ws_stream.split();
+            let mut client_recv = client_recv
+                .filter_map(client::filter_map_ws_message)
+                .boxed_local();
 
             let mut client_msg = client_recv.next();
             let mut server_msg = server_recv.next();
@@ -92,9 +98,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 match select(select(client_msg, server_msg), timer).await {
                     Either::Left((either, p_timer)) => match either {
                         // Message from Client
-                        Either::Left((Some(Ok(ws::Message::Text(text))), p_server_msg)) => {
-                            inspect_message_from_client(&text);
-                            // TODO transform the message
+                        Either::Left((Some(Ok(client::Message::Message(msg))), p_server_msg)) => {
+                            // TODO remap document uri
+                            inspect_message_from_client(&msg);
+                            // If sync option is enabled, write to file on `textDocument/didSave`
+                            // The client needs to include `text` field even when the server
+                            // doesn't require it.
+                            // If this is a problem, we can introduce an extension and intercept it.
+                            if opts.sync {
+                                maybe_write_text_document(&msg).await?;
+                            }
+                            server_send.send(serde_json::to_string(&msg)?).await?;
+                            client_msg = client_recv.next();
+                            server_msg = p_server_msg;
+                            timer = p_timer;
+                            timer.set_after(timeout);
+                        }
+
+                        // Client sent message with invalid JSON body. Just forward it to the server as is.
+                        Either::Left((Some(Ok(client::Message::Invalid(text))), p_server_msg)) => {
+                            log::debug!("Received invalid JSON: {}", text);
                             server_send.send(text).await?;
                             client_msg = client_recv.next();
                             server_msg = p_server_msg;
@@ -103,20 +126,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
 
                         // Close message from client
-                        Either::Left((Some(Ok(ws::Message::Close(_))), p_server_msg)) => {
+                        Either::Left((Some(Ok(client::Message::Close(_))), p_server_msg)) => {
                             log::info!("Received Close Message");
                             // The connection will terminate when None is received.
                             client_msg = client_recv.next();
                             server_msg = p_server_msg;
                             timer = p_timer;
                             timer.set_after(timeout);
-                        }
-
-                        // Ignore any other message types from client. Inactivity timer is not rest.
-                        Either::Left((Some(Ok(_)), p_server_msg)) => {
-                            client_msg = client_recv.next();
-                            server_msg = p_server_msg;
-                            timer = p_timer;
                         }
 
                         // Message from Server
@@ -205,27 +221,39 @@ fn get_opts_and_command() -> (Options, Vec<String>) {
     (opts, splitted[1].to_vec())
 }
 
-fn inspect_message_from_client(text: &str) {
-    if !log::log_enabled!(log::Level::Debug) {
-        return;
+async fn maybe_write_text_document(m: &lsp::Message) -> Result<(), std::io::Error> {
+    if let lsp::Message::Notification(lsp::Notification::DidSave { params }) = m {
+        if let Some(text) = &params.text {
+            let uri = &params.text_document.uri;
+            if uri.scheme() == "file" {
+                if let Ok(path) = uri.to_file_path() {
+                    log::debug!("writing to {:?}", path);
+                    let mut file = File::create(&path).await?;
+                    file.write_all(text.as_bytes()).await?;
+                    file.flush().await?;
+                }
+            }
+        }
     }
+    Ok(())
+}
 
-    match lsp::Message::from_str(&text) {
-        Ok(lsp::Message::Notification(notification)) => {
+fn inspect_message_from_client(msg: &lsp::Message) {
+    match msg {
+        lsp::Message::Notification(notification) => {
             log::debug!("--> Notification: {:?}", notification);
         }
-        Ok(lsp::Message::Response(response)) => {
-            log::debug!("--> Response: {:?}", response);
-        }
-        Ok(lsp::Message::Request(request)) => {
+
+        lsp::Message::Request(request) => {
             log::debug!("--> Request: {:?}", request);
         }
-        Ok(lsp::Message::Unknown(unknown)) => {
-            log::debug!("--> Unknown: {:?}", unknown);
+
+        lsp::Message::Response(response) => {
+            log::debug!("--> Response: {:?}", response);
         }
-        // Invalid, just let the LSP Server handle it.
-        Err(err) => {
-            log::error!("--> Invalid: {:?}", err);
+
+        lsp::Message::Unknown(unknown) => {
+            log::debug!("--> Unknown: {:?}", unknown);
         }
     }
 }

@@ -3,6 +3,19 @@ use serde::{Deserialize, Serialize};
 // NOTE Not using `lsp_types::lsp_notification!` because rust-analyzer
 // doesn't seem to understand it well at the moment and shows `{unknown}`.
 
+// TODO Remove this when a new version of `lsp_types` is published with the fix.
+// https://github.com/gluon-lang/lsp-types/pull/178
+#[derive(Debug, Eq, PartialEq, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct DidSaveTextDocumentParams {
+    /// The document that was saved.
+    pub text_document: lsp_types::TextDocumentIdentifier,
+    /// Optional the content when saved. Depends on the includeText value
+    /// when the save notification was requested.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
 /// A [notification message].
 ///
 /// [notification message]: https://microsoft.github.io/language-server-protocol/specifications/specification-current/#notificationMessage
@@ -66,9 +79,7 @@ pub(crate) enum Notification {
     // To Server
     // https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_didSave
     #[serde(rename = "textDocument/didSave")]
-    DidSave {
-        params: lsp_types::DidSaveTextDocumentParams,
-    },
+    DidSave { params: DidSaveTextDocumentParams },
 
     // To Server
     // https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocument_didClose

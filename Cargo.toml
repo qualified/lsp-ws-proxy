@@ -14,6 +14,7 @@ categories = ["command-line-utilities"]
 [dependencies]
 argh = "0.1"
 async-io = "1.0"
+async-fs = "1.2"
 async-net = "1.2"
 async-process = "1.0"
 async-tungstenite = "0.8"
