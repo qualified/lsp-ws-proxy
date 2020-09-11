@@ -7,7 +7,7 @@ Single binary WebSocket proxy for Language Server.
 ```
 $ lsp-ws-proxy --help
 
-Usage: lsp-ws-proxy [-v] [-l <listen>] [-t <timeout>]
+Usage: lsp-ws-proxy [-l <listen>] [-t <timeout>] [-s] [-v]
 
 Start WebSocket proxy for the LSP Server.
 Anything after the option delimiter is used to start the server.
