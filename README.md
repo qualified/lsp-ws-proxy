@@ -20,9 +20,10 @@ Examples:
   lsp-ws-proxy -l 8888 -- langserver --stdio
 
 Options:
-  -v, --version     show version and exit
   -l, --listen      address or localhost's port to listen on (default: 9999)
   -t, --timeout     inactivity timeout in seconds
+  -s, --sync        write text document to disk on save
+  -v, --version     show version and exit
   --help            display usage information
 ```
 
@@ -30,5 +31,5 @@ Options:
 
 - [x] Proxy messages
 - [x] Inactivity timeout
+- [x] Synchronize files
 - [ ] Remap `DocumentUri`
-- [ ] Synchronize files

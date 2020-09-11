@@ -586,6 +586,7 @@ name = "lsp-ws-proxy"
 version = "0.2.0"
 dependencies = [
  "argh",
+ "async-fs",
  "async-io",
  "async-net",
  "async-process",
