@@ -96,99 +96,87 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut timer = Timer::after(timeout);
         loop {
             match select(select(client_msg, server_msg), timer).await {
-                Either::Left((either, p_timer)) => match either {
-                    // Message from Client
-                    Either::Left((Some(Ok(client::Message::Message(msg))), p_server_msg)) => {
-                        // TODO remap document uri
-                        inspect_message_from_client(&msg);
-                        // If sync option is enabled, write to file on `textDocument/didSave`
-                        // The client needs to include `text` field even when the server
-                        // doesn't require it.
-                        // If this is a problem, we can introduce an extension and intercept it.
-                        if opts.sync {
-                            maybe_write_text_document(&msg).await?;
+                Either::Left((Either::Left((from_client, p_server_msg)), p_timer)) => {
+                    match from_client {
+                        // Valid LSP message
+                        Some(Ok(client::Message::Message(msg))) => {
+                            // TODO remap document uri
+                            inspect_message_from_client(&msg);
+                            if opts.sync {
+                                maybe_write_text_document(&msg).await?;
+                            }
+                            server_send.send(serde_json::to_string(&msg)?).await?;
                         }
-                        server_send.send(serde_json::to_string(&msg)?).await?;
-                        client_msg = client_recv.next();
-                        server_msg = p_server_msg;
-                        timer = p_timer;
-                        timer.set_after(timeout);
+
+                        // Invalid JSON body
+                        Some(Ok(client::Message::Invalid(text))) => {
+                            log::debug!("Received invalid JSON: {}", text);
+                            // Just forward it to the server as is.
+                            server_send.send(text).await?;
+                        }
+
+                        // Close message
+                        Some(Ok(client::Message::Close(_))) => {
+                            // The connection will terminate when None is received.
+                            log::info!("Received Close Message");
+                        }
+
+                        // WebSocket Error
+                        Some(Err(err)) => {
+                            log::error!("{}", err);
+                        }
+
+                        // Connection closed
+                        None => {
+                            log::info!("Connection Closed");
+                            break;
+                        }
                     }
 
-                    // Client sent message with invalid JSON body. Just forward it to the server as is.
-                    Either::Left((Some(Ok(client::Message::Invalid(text))), p_server_msg)) => {
-                        log::debug!("Received invalid JSON: {}", text);
-                        server_send.send(text).await?;
-                        client_msg = client_recv.next();
-                        server_msg = p_server_msg;
-                        timer = p_timer;
-                        timer.set_after(timeout);
+                    client_msg = client_recv.next();
+                    server_msg = p_server_msg;
+                    timer = p_timer;
+                    timer.set_after(timeout);
+                }
+
+                Either::Left((Either::Right((from_server, p_client_msg)), p_timer)) => {
+                    match from_server {
+                        // Serialized LSP Message
+                        Some(Ok(text)) => {
+                            inspect_message_from_server(&text);
+                            // TODO transform the message
+                            client_send.send(ws::Message::text(text)).await?;
+                        }
+
+                        // Codec Error
+                        Some(Err(err)) => {
+                            log::error!("{}", err);
+                        }
+
+                        // Server exited
+                        None => {
+                            log::error!("Server process exited unexpectedly");
+                            client_send.send(ws::Message::Close(None)).await?;
+                            break;
+                        }
                     }
 
-                    // Close message from client
-                    Either::Left((Some(Ok(client::Message::Close(_))), p_server_msg)) => {
-                        log::info!("Received Close Message");
-                        // The connection will terminate when None is received.
-                        client_msg = client_recv.next();
-                        server_msg = p_server_msg;
-                        timer = p_timer;
-                        timer.set_after(timeout);
-                    }
-
-                    // Message from Server
-                    Either::Right((Some(Ok(text)), p_client_msg)) => {
-                        inspect_message_from_server(&text);
-                        // TODO transform the message
-                        client_send.send(ws::Message::text(text)).await?;
-                        client_msg = p_client_msg;
-                        server_msg = server_recv.next();
-                        timer = p_timer;
-                        timer.set_after(timeout);
-                    }
-
-                    // Error with WebSocket message
-                    Either::Left((Some(Err(err)), p_server_msg)) => {
-                        log::error!("{}", err);
-                        client_msg = client_recv.next();
-                        server_msg = p_server_msg;
-                        timer = p_timer;
-                        timer.set_after(timeout);
-                    }
-
-                    // Error with server message
-                    Either::Right((Some(Err(err)), p_client_msg)) => {
-                        log::error!("{}", err);
-                        client_msg = p_client_msg;
-                        server_msg = server_recv.next();
-                        timer = p_timer;
-                        timer.set_after(timeout);
-                    }
-
-                    // Connection Closed
-                    Either::Left((None, _)) => {
-                        log::info!("Connection Closed");
-                        ensure_server_exited(&mut lang_server).await?;
-                        break;
-                    }
-
-                    // Process exited unexpectedly
-                    Either::Right((None, _)) => {
-                        log::error!("Server process exited unexpectedly");
-                        client_send.send(ws::Message::Close(None)).await?;
-                        ensure_server_exited(&mut lang_server).await?;
-                        break;
-                    }
-                },
+                    client_msg = p_client_msg;
+                    server_msg = server_recv.next();
+                    timer = p_timer;
+                    timer.set_after(timeout);
+                }
 
                 // Inactivity timeout reached
                 Either::Right(_) => {
                     log::info!("Inactivity timeout reached. Closing");
                     client_send.send(ws::Message::Close(None)).await?;
-                    ensure_server_exited(&mut lang_server).await?;
                     break;
                 }
             }
         }
+
+        ensure_server_exited(&mut lang_server).await?;
         Ok(())
     })
 }
