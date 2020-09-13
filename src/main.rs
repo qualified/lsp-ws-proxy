@@ -71,31 +71,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Failed to bind");
         log::info!("Listening on {}", listener.local_addr()?);
 
-        // Only accept single connection. Others will hang.
+        // Only accept single connection.
         let (stream, _) = listener.accept().await?;
-        let ws_stream = accept_async(stream)
+        let stream = accept_async(stream)
             .await
             .expect("Error during the websocket handshake occurred");
         log::info!("Connection Established");
 
-        let mut lang_server = Command::new(&command[0])
+        let mut server = Command::new(&command[0])
             .args(&command[1..])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()?;
-        let mut server_send = lsp::framed::writer(lang_server.stdin.take().unwrap());
-        let mut server_recv = lsp::framed::reader(lang_server.stdout.take().unwrap());
-        let (mut client_send, client_recv) = ws_stream.split();
+        let mut server_send = lsp::framed::writer(server.stdin.take().unwrap());
+        let mut server_recv = lsp::framed::reader(server.stdout.take().unwrap());
+        let (mut client_send, client_recv) = stream.split();
         let mut client_recv = client_recv
             .filter_map(client::filter_map_ws_message)
             .boxed_local();
 
         let mut client_msg = client_recv.next();
         let mut server_msg = server_recv.next();
-        // timer for inactivity timeout. It's reset whenever a message comes in.
+        // Timer for inactivity timeout that resets whenever a message comes in.
         let mut timer = Timer::after(timeout);
         loop {
             match select(select(client_msg, server_msg), timer).await {
+                // From Client
                 Either::Left((Either::Left((from_client, p_server_msg)), p_timer)) => {
                     match from_client {
                         // Valid LSP message
@@ -139,6 +140,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     timer.set_after(timeout);
                 }
 
+                // From Server
                 Either::Left((Either::Right((from_server, p_client_msg)), p_timer)) => {
                     match from_server {
                         // Serialized LSP Message
@@ -167,7 +169,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     timer.set_after(timeout);
                 }
 
-                // Inactivity timeout reached
+                // Inactivity Timeout
                 Either::Right(_) => {
                     log::info!("Inactivity timeout reached. Closing");
                     client_send.send(ws::Message::Close(None)).await?;
@@ -176,7 +178,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        ensure_server_exited(&mut lang_server).await?;
+        ensure_server_exited(&mut server).await?;
         Ok(())
     })
 }
@@ -273,8 +275,8 @@ fn inspect_message_from_server(text: &str) {
     }
 }
 
-async fn ensure_server_exited(lang_server: &mut Child) -> Result<(), std::io::Error> {
-    match lang_server.try_status()? {
+async fn ensure_server_exited(server: &mut Child) -> Result<(), std::io::Error> {
+    match server.try_status()? {
         Some(status) => {
             log::info!("Language Server exited");
             log::info!("Status: {}", status);
@@ -283,9 +285,8 @@ async fn ensure_server_exited(lang_server: &mut Child) -> Result<(), std::io::Er
 
         None => {
             log::info!("Language Server is still alive. Waiting 3s before killing.");
+            let status = Box::pin(server.status());
             let timeout = Timer::after(Duration::from_secs(3));
-            let status = lang_server.status();
-            let status = Box::pin(status);
             match select(status, timeout).await {
                 Either::Left((Ok(status), _)) => {
                     log::info!("Language Server exited");
@@ -296,10 +297,10 @@ async fn ensure_server_exited(lang_server: &mut Child) -> Result<(), std::io::Er
 
                 Either::Right(_) => {
                     log::info!("Killing Language Server...");
-                    match lang_server.kill() {
+                    match server.kill() {
                         Ok(_) => {
                             log::info!("Killed Language Server");
-                            log::info!("Status: {}", lang_server.status().await?);
+                            log::info!("Status: {}", server.status().await?);
                             Ok(())
                         }
 
@@ -307,7 +308,7 @@ async fn ensure_server_exited(lang_server: &mut Child) -> Result<(), std::io::Er
                             // The process had already exited
                             std::io::ErrorKind::InvalidInput => {
                                 log::info!("Language Server had already exited");
-                                log::info!("Status: {}", lang_server.status().await?);
+                                log::info!("Status: {}", server.status().await?);
                                 Ok(())
                             }
 
