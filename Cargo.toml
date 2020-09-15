@@ -1,6 +1,6 @@
 [package]
 name = "lsp-ws-proxy"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["kazk <kazk.dev@gmail.com>"]
 edition = "2018"
 license = "MIT"
