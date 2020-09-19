@@ -2,7 +2,6 @@
 // Extracted from [tower-lsp](https://github.com/ebkalderon/tower-lsp).
 // Copyright (c) 2020 Eyal Kalderon. MIT License.
 // Changes:
-// - visibility to `pub(crate)`
 // - removed methods to create Error
 
 use std::fmt::{self, Display, Formatter};
@@ -14,7 +13,7 @@ use serde_json::Value;
 
 /// A list of numeric error codes used in JSON-RPC responses.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ErrorCode {
+pub enum ErrorCode {
     /// Invalid JSON was received by the server.
     ParseError,
     /// The JSON sent is not a valid Request object.
@@ -118,14 +117,14 @@ impl Serialize for ErrorCode {
 /// A JSON-RPC error object.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct Error {
+pub struct Error {
     /// A number indicating the error type that occurred.
-    pub(crate) code: ErrorCode,
+    pub code: ErrorCode,
     /// A short description of the error.
-    pub(crate) message: String,
+    pub message: String,
     /// Additional information about the error, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) data: Option<Value>,
+    pub data: Option<Value>,
 }
 
 impl Display for Error {

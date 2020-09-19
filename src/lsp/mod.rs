@@ -1,24 +1,24 @@
-pub(crate) mod error;
-pub(crate) mod ext;
-pub(crate) mod framed;
+pub mod error;
+pub mod ext;
+pub mod framed;
 mod notification;
 mod request;
 mod response;
-pub(crate) mod types;
+pub mod types;
 
 use std::{convert::TryFrom, str::FromStr};
 
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
-pub(crate) use notification::Notification;
-pub(crate) use request::Request;
-pub(crate) use response::{Response, ResponseResult};
+pub use notification::Notification;
+pub use request::Request;
+pub use response::{Response, ResponseResult};
 use types::Unknown;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
-pub(crate) enum Message {
+pub enum Message {
     Request(Request),
 
     Notification(Notification),

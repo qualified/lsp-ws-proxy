@@ -5,7 +5,7 @@ use async_tungstenite::tungstenite as ws;
 use crate::lsp;
 
 // Type to describe a message from the client conveniently.
-pub(crate) enum Message {
+pub enum Message {
     // Valid LSP message
     Message(lsp::Message),
     // Invalid JSON
@@ -15,7 +15,7 @@ pub(crate) enum Message {
 }
 
 // Parse the message and ignore anything we don't care.
-pub(crate) async fn filter_map_ws_message(
+pub async fn filter_map_ws_message(
     wsm: Result<ws::Message, ws::Error>,
 ) -> Option<Result<Message, ws::Error>> {
     match wsm {

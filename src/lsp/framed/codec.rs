@@ -14,17 +14,17 @@ use futures_io::{AsyncRead, AsyncWrite};
 
 use super::parser;
 
-pub(crate) fn reader<R: AsyncRead>(inner: R) -> FramedRead<R, LspFrameCodec> {
+pub fn reader<R: AsyncRead>(inner: R) -> FramedRead<R, LspFrameCodec> {
     FramedRead::new(inner, LspFrameCodec::default())
 }
 
-pub(crate) fn writer<W: AsyncWrite>(inner: W) -> FramedWrite<W, LspFrameCodec> {
+pub fn writer<W: AsyncWrite>(inner: W) -> FramedWrite<W, LspFrameCodec> {
     FramedWrite::new(inner, LspFrameCodec::default())
 }
 
 /// Errors from LspFrameCodec.
 #[derive(Debug)]
-pub(crate) enum CodecError {
+pub enum CodecError {
     /// The frame lacks the required `Content-Length` header.
     MissingHeader,
     /// The length value in the `Content-Length` header is invalid.
@@ -72,7 +72,7 @@ impl From<Utf8Error> for CodecError {
 }
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct LspFrameCodec {
+pub struct LspFrameCodec {
     remaining_bytes: usize,
 }
 
