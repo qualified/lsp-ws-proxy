@@ -20,51 +20,51 @@ pub(crate) fn remap_relative_uri(msg: &mut Message, cwd: &Url) -> Result<(), std
 
 fn remap_notification(notification: &mut Notification, cwd: &Url) -> Result<(), std::io::Error> {
     match notification {
-        Notification::DidSave { params } => {
-            remap_text_document_identifier(&mut params.text_document, cwd)?;
+        Notification::DidSave { params: p } => {
+            remap_text_document_identifier(&mut p.text_document, cwd)?;
         }
 
-        Notification::DidChangeWorkspaceFolders { params } => {
-            for folder in &mut params.event.added {
+        Notification::DidChangeWorkspaceFolders { params: p } => {
+            for folder in &mut p.event.added {
                 remap_workspace_folder(folder, cwd)?;
             }
-            for folder in &mut params.event.removed {
+            for folder in &mut p.event.removed {
                 remap_workspace_folder(folder, cwd)?;
             }
         }
 
-        Notification::DidChangeWatchedFiles { params } => {
-            for event in &mut params.changes {
+        Notification::DidChangeWatchedFiles { params: p } => {
+            for event in &mut p.changes {
                 if let Some(uri) = to_file(&event.uri, cwd)? {
                     event.uri = uri;
                 }
             }
         }
 
-        Notification::DidOpen { params } => {
-            if let Some(uri) = to_file(&params.text_document.uri, cwd)? {
-                params.text_document.uri = uri;
+        Notification::DidOpen { params: p } => {
+            if let Some(uri) = to_file(&p.text_document.uri, cwd)? {
+                p.text_document.uri = uri;
             }
         }
 
-        Notification::DidChange { params } => {
-            if let Some(uri) = to_file(&params.text_document.uri, cwd)? {
-                params.text_document.uri = uri;
+        Notification::DidChange { params: p } => {
+            if let Some(uri) = to_file(&p.text_document.uri, cwd)? {
+                p.text_document.uri = uri;
             }
         }
 
-        Notification::WillSave { params } => {
-            remap_text_document_identifier(&mut params.text_document, cwd)?;
+        Notification::WillSave { params: p } => {
+            remap_text_document_identifier(&mut p.text_document, cwd)?;
         }
 
-        Notification::DidClose { params } => {
-            remap_text_document_identifier(&mut params.text_document, cwd)?;
+        Notification::DidClose { params: p } => {
+            remap_text_document_identifier(&mut p.text_document, cwd)?;
         }
 
-        Notification::PublishDiagnostics { params } => {
+        Notification::PublishDiagnostics { params: p } => {
             // `to_source` because this goes to client
-            if let Some(uri) = to_source(&params.uri, cwd)? {
-                params.uri = uri;
+            if let Some(uri) = to_source(&p.uri, cwd)? {
+                p.uri = uri;
             }
         }
 
@@ -85,8 +85,8 @@ fn remap_request(request: &mut Request, cwd: &Url) -> Result<(), std::io::Error>
     match request {
         Request::Initialize { id: _, params: p } => {
             if let Some(root_uri) = &p.root_uri {
-                if let Some(uri) = to_file(root_uri, cwd)? {
-                    p.root_uri = Some(uri);
+                if let Some(root_uri) = to_file(root_uri, cwd)? {
+                    p.root_uri = Some(root_uri);
                 }
             }
             if let Some(folders) = &mut p.workspace_folders {
@@ -157,8 +157,8 @@ fn remap_request(request: &mut Request, cwd: &Url) -> Result<(), std::io::Error>
 
         Request::DocumentLinkResolve { id: _, params: p } => {
             if let Some(target) = &p.target {
-                if let Some(uri) = to_file(target, cwd)? {
-                    p.target = Some(uri);
+                if let Some(target) = to_file(target, cwd)? {
+                    p.target = Some(target);
                 }
             }
         }
@@ -208,8 +208,8 @@ fn remap_request(request: &mut Request, cwd: &Url) -> Result<(), std::io::Error>
         Request::Configuration { id: _, params: p } => {
             for item in &mut p.items {
                 if let Some(scope_uri) = &item.scope_uri {
-                    if let Some(uri) = to_source(scope_uri, cwd)? {
-                        item.scope_uri = Some(uri);
+                    if let Some(scope_uri) = to_source(scope_uri, cwd)? {
+                        item.scope_uri = Some(scope_uri);
                     }
                 }
             }
@@ -237,15 +237,15 @@ fn remap_response(response: &mut Response, cwd: &Url) -> Result<(), std::io::Err
             match result {
                 ResponseResult::DocumentLinkWithTarget(links) => {
                     for link in links {
-                        if let Some(uri) = to_source(&link.target, cwd)? {
-                            link.target = uri;
+                        if let Some(target) = to_source(&link.target, cwd)? {
+                            link.target = target;
                         }
                     }
                 }
 
                 ResponseResult::DocumentLinkWithTargetResolve(link) => {
-                    if let Some(uri) = to_source(&link.target, cwd)? {
-                        link.target = uri;
+                    if let Some(target) = to_source(&link.target, cwd)? {
+                        link.target = target;
                     }
                 }
 
@@ -274,8 +274,8 @@ fn remap_response(response: &mut Response, cwd: &Url) -> Result<(), std::io::Err
 
                 ResponseResult::LocationLinks(links) => {
                     for link in links {
-                        if let Some(uri) = to_source(&link.target_uri, cwd)? {
-                            link.target_uri = uri;
+                        if let Some(target_uri) = to_source(&link.target_uri, cwd)? {
+                            link.target_uri = target_uri;
                         }
                     }
                 }
@@ -402,23 +402,23 @@ fn remap_document_changes(
                             }
                         }
                         lsp_types::ResourceOp::Rename(r) => {
-                            if let Some(u) = to_source(&r.old_uri, cwd)? {
-                                r.old_uri = u;
+                            if let Some(uri) = to_source(&r.old_uri, cwd)? {
+                                r.old_uri = uri;
                             }
-                            if let Some(u) = to_source(&r.new_uri, cwd)? {
-                                r.new_uri = u;
+                            if let Some(uri) = to_source(&r.new_uri, cwd)? {
+                                r.new_uri = uri;
                             }
                         }
                         lsp_types::ResourceOp::Delete(d) => {
-                            if let Some(u) = to_source(&d.uri, cwd)? {
-                                d.uri = u;
+                            if let Some(uri) = to_source(&d.uri, cwd)? {
+                                d.uri = uri;
                             }
                         }
                     },
 
                     lsp_types::DocumentChangeOperation::Edit(e) => {
-                        if let Some(u) = to_source(&e.text_document.uri, cwd)? {
-                            e.text_document.uri = u;
+                        if let Some(uri) = to_source(&e.text_document.uri, cwd)? {
+                            e.text_document.uri = uri;
                         }
                     }
                 }
