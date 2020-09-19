@@ -104,7 +104,7 @@ impl Decoder for LspFrameCodec {
             return Ok(None);
         }
 
-        match parser::parse_message(&src) {
+        match parser::parse_message(src) {
             Ok((remaining, message)) => {
                 let message = str::from_utf8(message)?.to_string();
                 let len = src.len() - remaining.len();
@@ -125,7 +125,7 @@ impl Decoder for LspFrameCodec {
                 // To prevent infinite loop, advance the cursor until the buffer is empty or
                 // the cursor reaches the next valid message.
                 use CodecError::*;
-                match parser::parse_message(&src) {
+                match parser::parse_message(src) {
                     Err(_) if !src.is_empty() => src.advance(1),
                     _ => match err {
                         NomErrorKind::Digit | NomErrorKind::MapRes => return Err(InvalidLength),
