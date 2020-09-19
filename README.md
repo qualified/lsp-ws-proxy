@@ -7,7 +7,7 @@ Single binary WebSocket proxy for Language Server.
 ```
 $ lsp-ws-proxy --help
 
-Usage: lsp-ws-proxy [-l <listen>] [-t <timeout>] [-s] [-v]
+Usage: lsp-ws-proxy [-l <listen>] [-t <timeout>] [-s] [-r] [-v]
 
 Start WebSocket proxy for the LSP Server.
 Anything after the option delimiter is used to start the server.
@@ -23,6 +23,7 @@ Options:
   -l, --listen      address or localhost's port to listen on (default: 9999)
   -t, --timeout     inactivity timeout in seconds
   -s, --sync        write text document to disk on save
+  -r, --remap       remap relative uri (source://)
   -v, --version     show version and exit
   --help            display usage information
 ```
@@ -32,4 +33,4 @@ Options:
 - [x] Proxy messages
 - [x] Inactivity timeout
 - [x] Synchronize files
-- [ ] Remap `DocumentUri`
+- [x] Remap relative `DocumentUri` (`source://`)
