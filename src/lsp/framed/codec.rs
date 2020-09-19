@@ -124,13 +124,13 @@ impl Decoder for LspFrameCodec {
             Err(NomError((_, err))) | Err(NomFailure((_, err))) => loop {
                 // To prevent infinite loop, advance the cursor until the buffer is empty or
                 // the cursor reaches the next valid message.
-                use CodecError::*;
+                use CodecError::{InvalidLength, InvalidType, MissingHeader};
                 match parser::parse_message(src) {
                     Err(_) if !src.is_empty() => src.advance(1),
                     _ => match err {
                         NomErrorKind::Digit | NomErrorKind::MapRes => return Err(InvalidLength),
                         NomErrorKind::Char | NomErrorKind::IsNot => return Err(InvalidType),
-                        _ => return Err(CodecError::MissingHeader),
+                        _ => return Err(MissingHeader),
                     },
                 }
             },
