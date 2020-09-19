@@ -61,10 +61,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let (opts, command) = get_opts_and_command();
-    let timeout = if opts.timeout != 0 {
-        Duration::from_secs(opts.timeout)
-    } else {
+    let timeout = if opts.timeout == 0 {
         Duration::from_secs(NO_TIMEOUT)
+    } else {
+        Duration::from_secs(opts.timeout)
     };
     let cwd = Url::from_directory_path(std::env::current_dir()?).unwrap();
 
