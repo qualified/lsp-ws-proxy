@@ -1,10 +1,10 @@
 pub(crate) mod error;
+pub(crate) mod ext;
 pub(crate) mod framed;
 mod notification;
 mod request;
 mod response;
 pub(crate) mod types;
-// TODO Typed Result
 
 use std::{convert::TryFrom, str::FromStr};
 
@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) use notification::Notification;
 pub(crate) use request::Request;
-pub(crate) use response::Response;
+pub(crate) use response::{Response, ResponseResult};
 use types::Unknown;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]

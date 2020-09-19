@@ -10,11 +10,10 @@ use futures_util::{
     future::{select, Either},
     AsyncWriteExt, SinkExt, StreamExt,
 };
+use url::Url;
 
 mod client;
 mod lsp;
-
-// TODO Remap Document URIs
 
 #[derive(FromArgs)]
 // Using block doc comments so that `argh` preserves newlines in help output.
@@ -46,6 +45,9 @@ struct Options {
     /// write text document to disk on save
     #[argh(switch, short = 's')]
     sync: bool,
+    /// remap relative uri (source://)
+    #[argh(switch, short = 'r')]
+    remap: bool,
     /// show version and exit
     #[argh(switch, short = 'v')]
     version: bool,
@@ -64,6 +66,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         Duration::from_secs(NO_TIMEOUT)
     };
+    let cwd = Url::from_directory_path(std::env::current_dir()?).unwrap();
 
     smol::block_on(async {
         let listener = TcpListener::bind(&opts.listen)
@@ -100,9 +103,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Either::Left((Either::Left((from_client, p_server_msg)), p_timer)) => {
                     match from_client {
                         // Valid LSP message
-                        Some(Ok(client::Message::Message(msg))) => {
-                            // TODO remap document uri
+                        Some(Ok(client::Message::Message(mut msg))) => {
                             inspect_message_from_client(&msg);
+                            if opts.remap {
+                                lsp::ext::remap_relative_uri(&mut msg, &cwd)?;
+                                log::debug!("Remapped relative URI");
+                                inspect_message_from_client(&msg);
+                            }
                             if opts.sync {
                                 maybe_write_text_document(&msg).await?;
                             }
@@ -145,9 +152,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     match from_server {
                         // Serialized LSP Message
                         Some(Ok(text)) => {
-                            inspect_message_from_server(&text);
-                            // TODO transform the message
-                            client_send.send(ws::Message::text(text)).await?;
+                            if opts.remap {
+                                if let Ok(mut msg) = lsp::Message::from_str(&text) {
+                                    inspect_message_from_server(&msg);
+                                    lsp::ext::remap_relative_uri(&mut msg, &cwd)?;
+                                    log::debug!("Remapped relative URI");
+                                    inspect_message_from_server(&msg);
+                                    client_send
+                                        .send(ws::Message::text(serde_json::to_string(&msg)?))
+                                        .await?;
+                                } else {
+                                    log::error!("<-- Invalid: {}", text);
+                                    client_send.send(ws::Message::text(text)).await?;
+                                }
+                            } else {
+                                inspect_serialized_message_from_server(&text);
+                                client_send.send(ws::Message::text(text)).await?;
+                            }
                         }
 
                         // Codec Error
@@ -247,30 +268,32 @@ fn inspect_message_from_client(msg: &lsp::Message) {
     }
 }
 
-fn inspect_message_from_server(text: &str) {
-    if !log::log_enabled!(log::Level::Debug) {
-        return;
+fn inspect_serialized_message_from_server(text: &str) {
+    if log::log_enabled!(log::Level::Debug) {
+        if let Ok(msg) = lsp::Message::from_str(text) {
+            inspect_message_from_server(&msg);
+        } else {
+            log::error!("<-- Invalid: {}", text);
+        }
     }
+}
 
-    match lsp::Message::from_str(text) {
-        Ok(lsp::Message::Notification(notification)) => {
+fn inspect_message_from_server(msg: &lsp::Message) {
+    match msg {
+        lsp::Message::Notification(notification) => {
             log::debug!("<-- Notification: {:?}", notification);
         }
 
-        Ok(lsp::Message::Response(response)) => {
+        lsp::Message::Response(response) => {
             log::debug!("<-- Response: {:?}", response);
         }
 
-        Ok(lsp::Message::Request(request)) => {
+        lsp::Message::Request(request) => {
             log::debug!("<-- Request: {:?}", request);
         }
 
-        Ok(lsp::Message::Unknown(unknown)) => {
+        lsp::Message::Unknown(unknown) => {
             log::debug!("<-- Unknown: {:?}", unknown);
-        }
-
-        Err(err) => {
-            log::error!("<-- Invalid: {:?}", err);
         }
     }
 }
