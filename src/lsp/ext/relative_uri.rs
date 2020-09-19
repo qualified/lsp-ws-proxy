@@ -10,296 +10,311 @@ use crate::lsp::{Message, Notification, Request, Response, ResponseResult};
 /// [Metals Remote Language Server]: https://scalameta.org/metals/docs/contributors/remote-language-server.html
 pub(crate) fn remap_relative_uri(msg: &mut Message, cwd: &Url) -> Result<(), std::io::Error> {
     match msg {
-        Message::Notification(notification) => match notification {
-            Notification::DidSave { params } => {
-                remap_text_document_identifier(&mut params.text_document, cwd)?;
-            }
+        Message::Notification(notification) => remap_notification(notification, cwd)?,
+        Message::Request(request) => remap_request(request, cwd)?,
+        Message::Response(response) => remap_response(response, cwd)?,
+        Message::Unknown(_) => {}
+    }
+    Ok(())
+}
 
-            Notification::DidChangeWorkspaceFolders { params } => {
-                for folder in &mut params.event.added {
+fn remap_notification(notification: &mut Notification, cwd: &Url) -> Result<(), std::io::Error> {
+    match notification {
+        Notification::DidSave { params } => {
+            remap_text_document_identifier(&mut params.text_document, cwd)?;
+        }
+
+        Notification::DidChangeWorkspaceFolders { params } => {
+            for folder in &mut params.event.added {
+                remap_workspace_folder(folder, cwd)?;
+            }
+            for folder in &mut params.event.removed {
+                remap_workspace_folder(folder, cwd)?;
+            }
+        }
+
+        Notification::DidChangeWatchedFiles { params } => {
+            for event in &mut params.changes {
+                if let Some(uri) = to_file(&event.uri, cwd)? {
+                    event.uri = uri;
+                }
+            }
+        }
+
+        Notification::DidOpen { params } => {
+            if let Some(uri) = to_file(&params.text_document.uri, cwd)? {
+                params.text_document.uri = uri;
+            }
+        }
+
+        Notification::DidChange { params } => {
+            if let Some(uri) = to_file(&params.text_document.uri, cwd)? {
+                params.text_document.uri = uri;
+            }
+        }
+
+        Notification::WillSave { params } => {
+            remap_text_document_identifier(&mut params.text_document, cwd)?;
+        }
+
+        Notification::DidClose { params } => {
+            remap_text_document_identifier(&mut params.text_document, cwd)?;
+        }
+
+        Notification::PublishDiagnostics { params } => {
+            // `to_source` because this goes to client
+            if let Some(uri) = to_source(&params.uri, cwd)? {
+                params.uri = uri;
+            }
+        }
+
+        Notification::DidChangeConfiguration { params: _ }
+        | Notification::Initialized { params: _ }
+        | Notification::Exit { params: _ }
+        | Notification::LogMessage { params: _ }
+        | Notification::ShowMessage { params: _ }
+        | Notification::Progress { params: _ }
+        | Notification::CancelRequest { params: _ }
+        | Notification::TelemetryEvent { params: _ } => {}
+    }
+
+    Ok(())
+}
+
+fn remap_request(request: &mut Request, cwd: &Url) -> Result<(), std::io::Error> {
+    match request {
+        Request::Initialize { id: _, params: p } => {
+            if let Some(root_uri) = &p.root_uri {
+                if let Some(uri) = to_file(root_uri, cwd)? {
+                    p.root_uri = Some(uri);
+                }
+            }
+            if let Some(folders) = &mut p.workspace_folders {
+                for folder in folders {
                     remap_workspace_folder(folder, cwd)?;
                 }
-                for folder in &mut params.event.removed {
-                    remap_workspace_folder(folder, cwd)?;
+            }
+        }
+
+        Request::DocumentSymbol { id: _, params: p } => {
+            remap_text_document_identifier(&mut p.text_document, cwd)?;
+        }
+
+        Request::WillSaveWaitUntil { id: _, params: p } => {
+            remap_text_document_identifier(&mut p.text_document, cwd)?;
+        }
+
+        Request::Completion { id: _, params: p } => {
+            remap_text_document_identifier(&mut p.text_document_position.text_document, cwd)?;
+        }
+
+        Request::Hover { id: _, params: p } => {
+            remap_text_document_identifier(
+                &mut p.text_document_position_params.text_document,
+                cwd,
+            )?;
+        }
+
+        Request::SignatureHelp { id: _, params: p } => {
+            remap_text_document_identifier(
+                &mut p.text_document_position_params.text_document,
+                cwd,
+            )?;
+        }
+
+        Request::GotoDeclaration { id: _, params: p }
+        | Request::GotoDefinition { id: _, params: p }
+        | Request::GotoTypeDefinition { id: _, params: p }
+        | Request::GotoImplementation { id: _, params: p } => {
+            remap_text_document_identifier(
+                &mut p.text_document_position_params.text_document,
+                cwd,
+            )?;
+        }
+
+        Request::References { id: _, params: p } => {
+            remap_text_document_identifier(&mut p.text_document_position.text_document, cwd)?;
+        }
+
+        Request::DocumentHighlight { id: _, params: p } => {
+            remap_text_document_identifier(
+                &mut p.text_document_position_params.text_document,
+                cwd,
+            )?;
+        }
+
+        Request::CodeAction { id: _, params: p } => {
+            remap_text_document_identifier(&mut p.text_document, cwd)?;
+        }
+
+        Request::CodeLens { id: _, params: p } => {
+            remap_text_document_identifier(&mut p.text_document, cwd)?;
+        }
+
+        Request::DocumentLink { id: _, params: p } => {
+            remap_text_document_identifier(&mut p.text_document, cwd)?;
+        }
+
+        Request::DocumentLinkResolve { id: _, params: p } => {
+            if let Some(target) = &p.target {
+                if let Some(uri) = to_file(target, cwd)? {
+                    p.target = Some(uri);
                 }
             }
+        }
 
-            Notification::DidChangeWatchedFiles { params } => {
-                for event in &mut params.changes {
-                    if let Some(uri) = to_file(&event.uri, cwd)? {
-                        event.uri = uri;
+        Request::DocumentColor { id: _, params: p } => {
+            remap_text_document_identifier(&mut p.text_document, cwd)?;
+        }
+
+        Request::ColorPresentation { id: _, params: p } => {
+            remap_text_document_identifier(&mut p.text_document, cwd)?;
+        }
+
+        Request::Formatting { id: _, params: p } => {
+            remap_text_document_identifier(&mut p.text_document, cwd)?;
+        }
+
+        Request::RangeFormatting { id: _, params: p } => {
+            remap_text_document_identifier(&mut p.text_document, cwd)?;
+        }
+
+        Request::OnTypeFormatting { id: _, params: p } => {
+            remap_text_document_identifier(&mut p.text_document_position.text_document, cwd)?;
+        }
+
+        Request::Rename { id: _, params: p } => {
+            remap_text_document_identifier(&mut p.text_document_position.text_document, cwd)?;
+        }
+
+        Request::PrepareRename { id: _, params: p } => {
+            remap_text_document_identifier(&mut p.text_document, cwd)?;
+        }
+
+        Request::FoldingRange { id: _, params: p } => {
+            remap_text_document_identifier(&mut p.text_document, cwd)?;
+        }
+
+        Request::SelectionRange { id: _, params: p } => {
+            remap_text_document_identifier(&mut p.text_document, cwd)?;
+        }
+
+        // To Client
+        Request::ApplyEdit { id: _, params: p } => {
+            remap_workspace_edit(&mut p.edit, cwd)?;
+        }
+
+        // To Client
+        Request::Configuration { id: _, params: p } => {
+            for item in &mut p.items {
+                if let Some(scope_uri) = &item.scope_uri {
+                    if let Some(uri) = to_source(scope_uri, cwd)? {
+                        item.scope_uri = Some(uri);
                     }
                 }
             }
+        }
 
-            Notification::DidOpen { params } => {
-                if let Some(uri) = to_file(&params.text_document.uri, cwd)? {
-                    params.text_document.uri = uri;
-                }
-            }
+        Request::WorkspaceFolders { id: _, params: _ }
+        | Request::ShowMessage { id: _, params: _ }
+        | Request::CompletionResolve { id: _, params: _ }
+        | Request::CodeLensResolve { id: _, params: _ }
+        | Request::RegisterCapability { id: _, params: _ }
+        | Request::UnregisterCapability { id: _, params: _ }
+        | Request::CreateWorkDoneProgress { id: _, params: _ }
+        | Request::CancelWorkDoneProgress { id: _, params: _ }
+        | Request::Symbol { id: _, params: _ }
+        | Request::ExecuteCommand { id: _, params: _ }
+        | Request::Shutdown { id: _, params: _ } => {}
+    }
 
-            Notification::DidChange { params } => {
-                if let Some(uri) = to_file(&params.text_document.uri, cwd)? {
-                    params.text_document.uri = uri;
-                }
-            }
+    Ok(())
+}
 
-            Notification::WillSave { params } => {
-                remap_text_document_identifier(&mut params.text_document, cwd)?;
-            }
-
-            Notification::DidClose { params } => {
-                remap_text_document_identifier(&mut params.text_document, cwd)?;
-            }
-
-            Notification::PublishDiagnostics { params } => {
-                // `to_source` because this goes to client
-                if let Some(uri) = to_source(&params.uri, cwd)? {
-                    params.uri = uri;
-                }
-            }
-
-            Notification::DidChangeConfiguration { params: _ }
-            | Notification::Initialized { params: _ }
-            | Notification::Exit { params: _ }
-            | Notification::LogMessage { params: _ }
-            | Notification::ShowMessage { params: _ }
-            | Notification::Progress { params: _ }
-            | Notification::CancelRequest { params: _ }
-            | Notification::TelemetryEvent { params: _ } => {}
-        },
-
-        Message::Request(request) => match request {
-            Request::Initialize { id: _, params: p } => {
-                if let Some(root_uri) = &p.root_uri {
-                    if let Some(uri) = to_file(root_uri, cwd)? {
-                        p.root_uri = Some(uri);
-                    }
-                }
-                if let Some(folders) = &mut p.workspace_folders {
-                    for folder in folders {
-                        remap_workspace_folder(folder, cwd)?;
-                    }
-                }
-            }
-
-            Request::DocumentSymbol { id: _, params: p } => {
-                remap_text_document_identifier(&mut p.text_document, cwd)?;
-            }
-
-            Request::WillSaveWaitUntil { id: _, params: p } => {
-                remap_text_document_identifier(&mut p.text_document, cwd)?;
-            }
-
-            Request::Completion { id: _, params: p } => {
-                remap_text_document_identifier(&mut p.text_document_position.text_document, cwd)?;
-            }
-
-            Request::Hover { id: _, params: p } => {
-                remap_text_document_identifier(
-                    &mut p.text_document_position_params.text_document,
-                    cwd,
-                )?;
-            }
-
-            Request::SignatureHelp { id: _, params: p } => {
-                remap_text_document_identifier(
-                    &mut p.text_document_position_params.text_document,
-                    cwd,
-                )?;
-            }
-
-            Request::GotoDeclaration { id: _, params: p }
-            | Request::GotoDefinition { id: _, params: p }
-            | Request::GotoTypeDefinition { id: _, params: p }
-            | Request::GotoImplementation { id: _, params: p } => {
-                remap_text_document_identifier(
-                    &mut p.text_document_position_params.text_document,
-                    cwd,
-                )?;
-            }
-
-            Request::References { id: _, params: p } => {
-                remap_text_document_identifier(&mut p.text_document_position.text_document, cwd)?;
-            }
-
-            Request::DocumentHighlight { id: _, params: p } => {
-                remap_text_document_identifier(
-                    &mut p.text_document_position_params.text_document,
-                    cwd,
-                )?;
-            }
-
-            Request::CodeAction { id: _, params: p } => {
-                remap_text_document_identifier(&mut p.text_document, cwd)?;
-            }
-
-            Request::CodeLens { id: _, params: p } => {
-                remap_text_document_identifier(&mut p.text_document, cwd)?;
-            }
-
-            Request::DocumentLink { id: _, params: p } => {
-                remap_text_document_identifier(&mut p.text_document, cwd)?;
-            }
-
-            Request::DocumentLinkResolve { id: _, params: p } => {
-                if let Some(target) = &p.target {
-                    if let Some(uri) = to_file(target, cwd)? {
-                        p.target = Some(uri);
-                    }
-                }
-            }
-
-            Request::DocumentColor { id: _, params: p } => {
-                remap_text_document_identifier(&mut p.text_document, cwd)?;
-            }
-
-            Request::ColorPresentation { id: _, params: p } => {
-                remap_text_document_identifier(&mut p.text_document, cwd)?;
-            }
-
-            Request::Formatting { id: _, params: p } => {
-                remap_text_document_identifier(&mut p.text_document, cwd)?;
-            }
-
-            Request::RangeFormatting { id: _, params: p } => {
-                remap_text_document_identifier(&mut p.text_document, cwd)?;
-            }
-
-            Request::OnTypeFormatting { id: _, params: p } => {
-                remap_text_document_identifier(&mut p.text_document_position.text_document, cwd)?;
-            }
-
-            Request::Rename { id: _, params: p } => {
-                remap_text_document_identifier(&mut p.text_document_position.text_document, cwd)?;
-            }
-
-            Request::PrepareRename { id: _, params: p } => {
-                remap_text_document_identifier(&mut p.text_document, cwd)?;
-            }
-
-            Request::FoldingRange { id: _, params: p } => {
-                remap_text_document_identifier(&mut p.text_document, cwd)?;
-            }
-
-            Request::SelectionRange { id: _, params: p } => {
-                remap_text_document_identifier(&mut p.text_document, cwd)?;
-            }
-
-            // To Client
-            Request::ApplyEdit { id: _, params: p } => {
-                remap_workspace_edit(&mut p.edit, cwd)?;
-            }
-
-            // To Client
-            Request::Configuration { id: _, params: p } => {
-                for item in &mut p.items {
-                    if let Some(scope_uri) = &item.scope_uri {
-                        if let Some(uri) = to_source(scope_uri, cwd)? {
-                            item.scope_uri = Some(uri);
-                        }
-                    }
-                }
-            }
-
-            Request::WorkspaceFolders { id: _, params: _ }
-            | Request::ShowMessage { id: _, params: _ }
-            | Request::CompletionResolve { id: _, params: _ }
-            | Request::CodeLensResolve { id: _, params: _ }
-            | Request::RegisterCapability { id: _, params: _ }
-            | Request::UnregisterCapability { id: _, params: _ }
-            | Request::CreateWorkDoneProgress { id: _, params: _ }
-            | Request::CancelWorkDoneProgress { id: _, params: _ }
-            | Request::Symbol { id: _, params: _ }
-            | Request::ExecuteCommand { id: _, params: _ }
-            | Request::Shutdown { id: _, params: _ } => {}
-        },
-
-        Message::Response(response) => match response {
-            Response::Success { id: _, result } => {
-                match result {
-                    ResponseResult::DocumentLinkWithTarget(links) => {
-                        for link in links {
-                            if let Some(uri) = to_source(&link.target, cwd)? {
-                                link.target = uri;
-                            }
-                        }
-                    }
-
-                    ResponseResult::DocumentLinkWithTargetResolve(link) => {
+fn remap_response(response: &mut Response, cwd: &Url) -> Result<(), std::io::Error> {
+    match response {
+        Response::Success { id: _, result } => {
+            match result {
+                ResponseResult::DocumentLinkWithTarget(links) => {
+                    for link in links {
                         if let Some(uri) = to_source(&link.target, cwd)? {
                             link.target = uri;
                         }
                     }
+                }
 
-                    ResponseResult::CodeAction(actions) => {
-                        for aoc in actions {
-                            match aoc {
-                                lsp_types::CodeActionOrCommand::Command(_) => {}
-                                lsp_types::CodeActionOrCommand::CodeAction(action) => {
-                                    if let Some(workspace_edit) = &mut action.edit {
-                                        remap_workspace_edit(workspace_edit, cwd)?;
-                                    }
+                ResponseResult::DocumentLinkWithTargetResolve(link) => {
+                    if let Some(uri) = to_source(&link.target, cwd)? {
+                        link.target = uri;
+                    }
+                }
+
+                ResponseResult::CodeAction(actions) => {
+                    for aoc in actions {
+                        match aoc {
+                            lsp_types::CodeActionOrCommand::Command(_) => {}
+                            lsp_types::CodeActionOrCommand::CodeAction(action) => {
+                                if let Some(workspace_edit) = &mut action.edit {
+                                    remap_workspace_edit(workspace_edit, cwd)?;
                                 }
                             }
                         }
                     }
+                }
 
-                    ResponseResult::Location(location) => {
+                ResponseResult::Location(location) => {
+                    remap_location(location, cwd)?;
+                }
+
+                ResponseResult::Locations(locations) => {
+                    for location in locations {
                         remap_location(location, cwd)?;
                     }
-
-                    ResponseResult::Locations(locations) => {
-                        for location in locations {
-                            remap_location(location, cwd)?;
-                        }
-                    }
-
-                    ResponseResult::LocationLinks(links) => {
-                        for link in links {
-                            if let Some(uri) = to_source(&link.target_uri, cwd)? {
-                                link.target_uri = uri;
-                            }
-                        }
-                    }
-
-                    ResponseResult::SymbolInfos(syms) => {
-                        for sym in syms {
-                            remap_location(&mut sym.location, cwd)?;
-                        }
-                    }
-
-                    ResponseResult::WorkspaceFolders(folders) => {
-                        for folder in folders {
-                            // `to_file` because this is a response from Client.
-                            if let Some(uri) = to_file(&folder.uri, cwd)? {
-                                folder.uri = uri;
-                            }
-                        }
-                    }
-
-                    ResponseResult::WorkspaceEditWithBoth(edit) => {
-                        remap_workspace_edit_changes(&mut edit.changes, cwd)?;
-                        remap_document_changes(&mut edit.document_changes, cwd)?;
-                    }
-
-                    ResponseResult::WorkspaceEditWithChanges(edit) => {
-                        remap_workspace_edit_changes(&mut edit.changes, cwd)?;
-                    }
-
-                    ResponseResult::WorkspaceEditWithDocumentChanges(edit) => {
-                        remap_document_changes(&mut edit.document_changes, cwd)?;
-                    }
-
-                    ResponseResult::Any(_) => {}
                 }
+
+                ResponseResult::LocationLinks(links) => {
+                    for link in links {
+                        if let Some(uri) = to_source(&link.target_uri, cwd)? {
+                            link.target_uri = uri;
+                        }
+                    }
+                }
+
+                ResponseResult::SymbolInfos(syms) => {
+                    for sym in syms {
+                        remap_location(&mut sym.location, cwd)?;
+                    }
+                }
+
+                ResponseResult::WorkspaceFolders(folders) => {
+                    for folder in folders {
+                        // `to_file` because this is a response from Client.
+                        if let Some(uri) = to_file(&folder.uri, cwd)? {
+                            folder.uri = uri;
+                        }
+                    }
+                }
+
+                ResponseResult::WorkspaceEditWithBoth(edit) => {
+                    remap_workspace_edit_changes(&mut edit.changes, cwd)?;
+                    remap_document_changes(&mut edit.document_changes, cwd)?;
+                }
+
+                ResponseResult::WorkspaceEditWithChanges(edit) => {
+                    remap_workspace_edit_changes(&mut edit.changes, cwd)?;
+                }
+
+                ResponseResult::WorkspaceEditWithDocumentChanges(edit) => {
+                    remap_document_changes(&mut edit.document_changes, cwd)?;
+                }
+
+                ResponseResult::Any(_) => {}
             }
+        }
 
-            Response::Failure { id: _, error: _ } => {}
-        },
-
-        Message::Unknown(_) => {}
+        Response::Failure { id: _, error: _ } => {}
     }
+
     Ok(())
 }
 
