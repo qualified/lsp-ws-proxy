@@ -15,8 +15,8 @@ pub enum Id {
 impl Display for Id {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
-            Id::Number(id) => Display::fmt(id, f),
-            Id::String(id) => fmt::Debug::fmt(id, f),
+            Self::Number(id) => Display::fmt(id, f),
+            Self::String(id) => fmt::Debug::fmt(id, f),
         }
     }
 }

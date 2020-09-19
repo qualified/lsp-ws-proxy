@@ -30,25 +30,25 @@ pub enum Message {
 
 impl From<Request> for Message {
     fn from(request: Request) -> Self {
-        Message::Request(request)
+        Self::Request(request)
     }
 }
 
 impl From<Notification> for Message {
     fn from(notification: Notification) -> Self {
-        Message::Notification(notification)
+        Self::Notification(notification)
     }
 }
 
 impl From<Response> for Message {
     fn from(response: Response) -> Self {
-        Message::Response(response)
+        Self::Response(response)
     }
 }
 
 impl From<Unknown> for Message {
     fn from(unknown: Unknown) -> Self {
-        Message::Unknown(unknown)
+        Self::Unknown(unknown)
     }
 }
 
@@ -82,7 +82,7 @@ impl Serialize for Message {
         }
 
         match &self {
-            Message::Request(request) => {
+            Self::Request(request) => {
                 let wrapped = WithJsonRpc {
                     jsonrpc: "2.0",
                     msg: &request,
@@ -90,7 +90,7 @@ impl Serialize for Message {
                 wrapped.serialize(serializer)
             }
 
-            Message::Notification(notification) => {
+            Self::Notification(notification) => {
                 let wrapped = WithJsonRpc {
                     jsonrpc: "2.0",
                     msg: &notification,
@@ -98,7 +98,7 @@ impl Serialize for Message {
                 wrapped.serialize(serializer)
             }
 
-            Message::Response(response) => {
+            Self::Response(response) => {
                 let wrapped = WithJsonRpc {
                     jsonrpc: "2.0",
                     msg: &response,
@@ -106,7 +106,7 @@ impl Serialize for Message {
                 wrapped.serialize(serializer)
             }
 
-            Message::Unknown(unknown) => {
+            Self::Unknown(unknown) => {
                 let wrapped = WithJsonRpc {
                     jsonrpc: "2.0",
                     msg: &unknown,

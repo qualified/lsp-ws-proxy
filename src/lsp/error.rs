@@ -46,14 +46,14 @@ impl ErrorCode {
     #[inline]
     pub fn code(&self) -> i64 {
         match *self {
-            ErrorCode::ParseError => -32700,
-            ErrorCode::InvalidRequest => -32600,
-            ErrorCode::MethodNotFound => -32601,
-            ErrorCode::InvalidParams => -32602,
-            ErrorCode::InternalError => -32603,
-            ErrorCode::RequestCancelled => -32800,
-            ErrorCode::ContentModified => -32801,
-            ErrorCode::ServerError(code) => code,
+            Self::ParseError => -32700,
+            Self::InvalidRequest => -32600,
+            Self::MethodNotFound => -32601,
+            Self::InvalidParams => -32602,
+            Self::InternalError => -32603,
+            Self::RequestCancelled => -32800,
+            Self::ContentModified => -32801,
+            Self::ServerError(code) => code,
         }
     }
 
@@ -61,14 +61,14 @@ impl ErrorCode {
     #[inline]
     pub fn description(&self) -> &'static str {
         match *self {
-            ErrorCode::ParseError => "Parse error",
-            ErrorCode::InvalidRequest => "Invalid request",
-            ErrorCode::MethodNotFound => "Method not found",
-            ErrorCode::InvalidParams => "Invalid params",
-            ErrorCode::InternalError => "Internal error",
-            ErrorCode::RequestCancelled => "Canceled",
-            ErrorCode::ContentModified => "Content modified",
-            ErrorCode::ServerError(_) => "Server error",
+            Self::ParseError => "Parse error",
+            Self::InvalidRequest => "Invalid request",
+            Self::MethodNotFound => "Method not found",
+            Self::InvalidParams => "Invalid params",
+            Self::InternalError => "Internal error",
+            Self::RequestCancelled => "Canceled",
+            Self::ContentModified => "Content modified",
+            Self::ServerError(_) => "Server error",
         }
     }
 }
@@ -77,14 +77,14 @@ impl From<i64> for ErrorCode {
     #[inline]
     fn from(code: i64) -> Self {
         match code {
-            -32700 => ErrorCode::ParseError,
-            -32600 => ErrorCode::InvalidRequest,
-            -32601 => ErrorCode::MethodNotFound,
-            -32602 => ErrorCode::InvalidParams,
-            -32603 => ErrorCode::InternalError,
-            -32800 => ErrorCode::RequestCancelled,
-            -32801 => ErrorCode::ContentModified,
-            code => ErrorCode::ServerError(code),
+            -32700 => Self::ParseError,
+            -32600 => Self::InvalidRequest,
+            -32601 => Self::MethodNotFound,
+            -32602 => Self::InvalidParams,
+            -32603 => Self::InternalError,
+            -32800 => Self::RequestCancelled,
+            -32801 => Self::ContentModified,
+            code => Self::ServerError(code),
         }
     }
 }
@@ -101,7 +101,7 @@ impl<'a> Deserialize<'a> for ErrorCode {
         D: Deserializer<'a>,
     {
         let code: i64 = Deserialize::deserialize(deserializer)?;
-        Ok(ErrorCode::from(code))
+        Ok(Self::from(code))
     }
 }
 

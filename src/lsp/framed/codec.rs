@@ -40,11 +40,11 @@ pub enum CodecError {
 impl Display for CodecError {
     fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
         match *self {
-            CodecError::MissingHeader => write!(fmt, "missing required `Content-Length` header"),
-            CodecError::InvalidLength => write!(fmt, "unable to parse content length"),
-            CodecError::InvalidType => write!(fmt, "unable to parse content type"),
-            CodecError::Encode(ref e) => write!(fmt, "failed to encode frame: {}", e),
-            CodecError::Utf8(ref e) => write!(fmt, "frame contains invalid UTF8: {}", e),
+            Self::MissingHeader => write!(fmt, "missing required `Content-Length` header"),
+            Self::InvalidLength => write!(fmt, "unable to parse content length"),
+            Self::InvalidType => write!(fmt, "unable to parse content type"),
+            Self::Encode(ref e) => write!(fmt, "failed to encode frame: {}", e),
+            Self::Utf8(ref e) => write!(fmt, "frame contains invalid UTF8: {}", e),
         }
     }
 }
@@ -52,8 +52,8 @@ impl Display for CodecError {
 impl Error for CodecError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match *self {
-            CodecError::Encode(ref e) => Some(e),
-            CodecError::Utf8(ref e) => Some(e),
+            Self::Encode(ref e) => Some(e),
+            Self::Utf8(ref e) => Some(e),
             _ => None,
         }
     }
@@ -61,13 +61,13 @@ impl Error for CodecError {
 
 impl From<IoError> for CodecError {
     fn from(error: IoError) -> Self {
-        CodecError::Encode(error)
+        Self::Encode(error)
     }
 }
 
 impl From<Utf8Error> for CodecError {
     fn from(error: Utf8Error) -> Self {
-        CodecError::Utf8(error)
+        Self::Utf8(error)
     }
 }
 
