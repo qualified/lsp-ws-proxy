@@ -192,12 +192,14 @@ pub(crate) fn remap_relative_uri(msg: &mut Message, cwd: &Url) -> Result<(), std
             }
 
             // To Client
-            Request::Configuration { id: _, params: _ } => {
-                // REVIEW lsp_types has Option<String> for `scope_uri` while the spec has `DocumentUri`.
-                // https://github.com/gluon-lang/lsp-types/pull/180
-                // for item in &mut p.items {
-                //     if let Some(uri) = &item.scope_uri {}
-                // }
+            Request::Configuration { id: _, params: p } => {
+                for item in &mut p.items {
+                    if let Some(scope_uri) = &item.scope_uri {
+                        if let Some(uri) = to_source(scope_uri, cwd)? {
+                            item.scope_uri = Some(uri);
+                        }
+                    }
+                }
             }
 
             Request::WorkspaceFolders { id: _, params: _ }
