@@ -2,7 +2,7 @@ use std::{process::Stdio, str::FromStr, time::Duration};
 
 use argh::FromArgs;
 use async_fs::File;
-use async_io::Timer;
+use async_io::{block_on, Timer};
 use async_net::{SocketAddr, TcpListener};
 use async_process::{Child, Command};
 use async_tungstenite::{accept_async, tungstenite as ws};
@@ -68,7 +68,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let cwd = Url::from_directory_path(std::env::current_dir()?).unwrap();
 
-    smol::block_on(async {
+    block_on(async {
         let listener = TcpListener::bind(&opts.listen)
             .await
             .expect("Failed to bind");
