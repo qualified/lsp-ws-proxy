@@ -1,6 +1,6 @@
 # lsp-ws-proxy
 
-Single binary WebSocket proxy for Language Server.
+WebSocket proxy for Language Servers.
 
 ## Usage
 
@@ -28,9 +28,21 @@ Options:
   --help            display usage information
 ```
 
+## Why?
+
+Remote Language Server is necessary when it's not possible to run the server next to the client.
+
+For example, this can be used to let in-browser editors like [CodeMirror][codemirror] and [Monaco][monaco] to use any Language Servers.
+See [qualified/lsps] for an example of using proxied [Rust Analyzer][rust-analyzer] with CodeMirror.
+
 ## Features
 
 - [x] Proxy messages
 - [x] Inactivity timeout
 - [x] Synchronize files
 - [x] Remap relative `DocumentUri` (`source://`)
+
+[codemirror]: https://codemirror.net/
+[monaco]: https://microsoft.github.io/monaco-editor/
+[qualified/lsps]: https://github.com/qualified/lsps
+[rust-analyzer]: https://github.com/rust-analyzer/rust-analyzer
