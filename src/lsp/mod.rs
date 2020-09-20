@@ -1,24 +1,24 @@
-pub(crate) mod error;
-pub(crate) mod ext;
-pub(crate) mod framed;
+pub mod error;
+pub mod ext;
+pub mod framed;
 mod notification;
 mod request;
 mod response;
-pub(crate) mod types;
+pub mod types;
 
 use std::{convert::TryFrom, str::FromStr};
 
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 
-pub(crate) use notification::Notification;
-pub(crate) use request::Request;
-pub(crate) use response::{Response, ResponseResult};
+pub use notification::Notification;
+pub use request::Request;
+pub use response::{Response, ResponseResult};
 use types::Unknown;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
-pub(crate) enum Message {
+pub enum Message {
     Request(Request),
 
     Notification(Notification),
@@ -30,25 +30,25 @@ pub(crate) enum Message {
 
 impl From<Request> for Message {
     fn from(request: Request) -> Self {
-        Message::Request(request)
+        Self::Request(request)
     }
 }
 
 impl From<Notification> for Message {
     fn from(notification: Notification) -> Self {
-        Message::Notification(notification)
+        Self::Notification(notification)
     }
 }
 
 impl From<Response> for Message {
     fn from(response: Response) -> Self {
-        Message::Response(response)
+        Self::Response(response)
     }
 }
 
 impl From<Unknown> for Message {
     fn from(unknown: Unknown) -> Self {
-        Message::Unknown(unknown)
+        Self::Unknown(unknown)
     }
 }
 
@@ -82,7 +82,7 @@ impl Serialize for Message {
         }
 
         match &self {
-            Message::Request(request) => {
+            Self::Request(request) => {
                 let wrapped = WithJsonRpc {
                     jsonrpc: "2.0",
                     msg: &request,
@@ -90,7 +90,7 @@ impl Serialize for Message {
                 wrapped.serialize(serializer)
             }
 
-            Message::Notification(notification) => {
+            Self::Notification(notification) => {
                 let wrapped = WithJsonRpc {
                     jsonrpc: "2.0",
                     msg: &notification,
@@ -98,7 +98,7 @@ impl Serialize for Message {
                 wrapped.serialize(serializer)
             }
 
-            Message::Response(response) => {
+            Self::Response(response) => {
                 let wrapped = WithJsonRpc {
                     jsonrpc: "2.0",
                     msg: &response,
@@ -106,7 +106,7 @@ impl Serialize for Message {
                 wrapped.serialize(serializer)
             }
 
-            Message::Unknown(unknown) => {
+            Self::Unknown(unknown) => {
                 let wrapped = WithJsonRpc {
                     jsonrpc: "2.0",
                     msg: &unknown,

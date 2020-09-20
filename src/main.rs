@@ -61,10 +61,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let (opts, command) = get_opts_and_command();
-    let timeout = if opts.timeout != 0 {
-        Duration::from_secs(opts.timeout)
-    } else {
+    let timeout = if opts.timeout == 0 {
         Duration::from_secs(NO_TIMEOUT)
+    } else {
+        Duration::from_secs(opts.timeout)
     };
     let cwd = Url::from_directory_path(std::env::current_dir()?).unwrap();
 
@@ -299,47 +299,41 @@ fn inspect_message_from_server(msg: &lsp::Message) {
 }
 
 async fn ensure_server_exited(server: &mut Child) -> Result<(), std::io::Error> {
-    match server.try_status()? {
-        Some(status) => {
-            log::info!("Language Server exited");
-            log::info!("Status: {}", status);
-            Ok(())
-        }
+    if let Some(status) = server.try_status()? {
+        log::info!("Language Server exited");
+        log::info!("Status: {}", status);
+        Ok(())
+    } else {
+        log::info!("Language Server is still alive. Waiting 3s before killing.");
+        let status = Box::pin(server.status());
+        let timeout = Timer::after(Duration::from_secs(3));
+        match select(status, timeout).await {
+            Either::Left((Ok(status), _)) => {
+                log::info!("Language Server exited");
+                log::info!("Status: {}", status);
+                Ok(())
+            }
+            Either::Left((Err(err), _)) => Err(err),
 
-        None => {
-            log::info!("Language Server is still alive. Waiting 3s before killing.");
-            let status = Box::pin(server.status());
-            let timeout = Timer::after(Duration::from_secs(3));
-            match select(status, timeout).await {
-                Either::Left((Ok(status), _)) => {
-                    log::info!("Language Server exited");
-                    log::info!("Status: {}", status);
-                    Ok(())
-                }
-                Either::Left((Err(err), _)) => Err(err),
+            Either::Right(_) => {
+                log::info!("Killing Language Server...");
+                match server.kill() {
+                    Ok(_) => {
+                        log::info!("Killed Language Server");
+                        log::info!("Status: {}", server.status().await?);
+                        Ok(())
+                    }
 
-                Either::Right(_) => {
-                    log::info!("Killing Language Server...");
-                    match server.kill() {
-                        Ok(_) => {
-                            log::info!("Killed Language Server");
+                    Err(err) => {
+                        // Ok if the process had already exited.
+                        if err.kind() == std::io::ErrorKind::InvalidInput {
+                            log::info!("Language Server had already exited");
                             log::info!("Status: {}", server.status().await?);
                             Ok(())
+                        } else {
+                            log::error!("Failed to kill Language Server: {}", err);
+                            Err(err)
                         }
-
-                        Err(err) => match err.kind() {
-                            // The process had already exited
-                            std::io::ErrorKind::InvalidInput => {
-                                log::info!("Language Server had already exited");
-                                log::info!("Status: {}", server.status().await?);
-                                Ok(())
-                            }
-
-                            _ => {
-                                log::error!("Failed to kill Language Server: {}", err);
-                                Err(err)
-                            }
-                        },
                     }
                 }
             }

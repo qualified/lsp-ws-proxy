@@ -10,7 +10,7 @@ use super::types::Id;
 /// [Response message]: https://microsoft.github.io/language-server-protocol/specifications/specification-current/#responseMessage
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(untagged)]
-pub(crate) enum Response {
+pub enum Response {
     Success { id: Id, result: ResponseResult },
 
     Failure { id: Option<Id>, error: Error },
@@ -21,7 +21,7 @@ pub(crate) enum Response {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(untagged)]
 #[serde(deny_unknown_fields)]
-pub(crate) enum ResponseResult {
+pub enum ResponseResult {
     // remap location
     // {name,kind,location, tags?,deprecated?,containerName?}[]
     SymbolInfos(Vec<lsp_types::SymbolInformation>),
@@ -150,13 +150,13 @@ pub(crate) enum ResponseResult {
 //
 // `lsp_types::DocumentLink` with `target` set.
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize, Serialize)]
-pub(crate) struct DocumentLinkWithTarget {
-    pub(crate) range: lsp_types::Range,
-    pub(crate) target: url::Url,
+pub struct DocumentLinkWithTarget {
+    pub range: lsp_types::Range,
+    pub target: url::Url,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) tooltip: Option<String>,
+    pub tooltip: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) data: Option<serde_json::Value>,
+    pub data: Option<serde_json::Value>,
 }
 
 // `WorkspaceEdit` (`{changes?, documentChanges?}`) needs to be remapped. But we can't
@@ -169,21 +169,21 @@ pub(crate) struct DocumentLinkWithTarget {
 // `lsp_types::WorkspaceEdit` both `changes` and `document_changes`
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct WorkspaceEditWithBoth {
-    pub(crate) changes: HashMap<url::Url, Vec<lsp_types::TextEdit>>,
-    pub(crate) document_changes: lsp_types::DocumentChanges,
+pub struct WorkspaceEditWithBoth {
+    pub changes: HashMap<url::Url, Vec<lsp_types::TextEdit>>,
+    pub document_changes: lsp_types::DocumentChanges,
 }
 
 // `lsp_types::WorkspaceEdit` with `changes`
 #[derive(Debug, Eq, PartialEq, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct WorkspaceEditWithChanges {
-    pub(crate) changes: HashMap<url::Url, Vec<lsp_types::TextEdit>>,
+pub struct WorkspaceEditWithChanges {
+    pub changes: HashMap<url::Url, Vec<lsp_types::TextEdit>>,
 }
 
 // `lsp_types::WorkspaceEdit` with `document_changes`
 #[derive(Debug, Eq, PartialEq, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct WorkspaceEditWithDocumentChanges {
-    pub(crate) document_changes: lsp_types::DocumentChanges,
+pub struct WorkspaceEditWithDocumentChanges {
+    pub document_changes: lsp_types::DocumentChanges,
 }

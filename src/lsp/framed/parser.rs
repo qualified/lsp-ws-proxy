@@ -13,7 +13,7 @@ use nom::sequence::{delimited, terminated, tuple};
 use nom::IResult;
 
 // Get JSON message from input using the Content-Length header.
-pub(crate) fn parse_message(input: &[u8]) -> IResult<&[u8], &[u8]> {
+pub fn parse_message(input: &[u8]) -> IResult<&[u8], &[u8]> {
     let content_len = delimited(tag("Content-Length: "), digit1, crlf);
 
     let utf8 = alt((tag("utf-8"), tag("utf8")));

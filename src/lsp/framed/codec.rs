@@ -14,17 +14,17 @@ use futures_io::{AsyncRead, AsyncWrite};
 
 use super::parser;
 
-pub(crate) fn reader<R: AsyncRead>(inner: R) -> FramedRead<R, LspFrameCodec> {
+pub fn reader<R: AsyncRead>(inner: R) -> FramedRead<R, LspFrameCodec> {
     FramedRead::new(inner, LspFrameCodec::default())
 }
 
-pub(crate) fn writer<W: AsyncWrite>(inner: W) -> FramedWrite<W, LspFrameCodec> {
+pub fn writer<W: AsyncWrite>(inner: W) -> FramedWrite<W, LspFrameCodec> {
     FramedWrite::new(inner, LspFrameCodec::default())
 }
 
 /// Errors from LspFrameCodec.
 #[derive(Debug)]
-pub(crate) enum CodecError {
+pub enum CodecError {
     /// The frame lacks the required `Content-Length` header.
     MissingHeader,
     /// The length value in the `Content-Length` header is invalid.
@@ -40,11 +40,11 @@ pub(crate) enum CodecError {
 impl Display for CodecError {
     fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
         match *self {
-            CodecError::MissingHeader => write!(fmt, "missing required `Content-Length` header"),
-            CodecError::InvalidLength => write!(fmt, "unable to parse content length"),
-            CodecError::InvalidType => write!(fmt, "unable to parse content type"),
-            CodecError::Encode(ref e) => write!(fmt, "failed to encode frame: {}", e),
-            CodecError::Utf8(ref e) => write!(fmt, "frame contains invalid UTF8: {}", e),
+            Self::MissingHeader => write!(fmt, "missing required `Content-Length` header"),
+            Self::InvalidLength => write!(fmt, "unable to parse content length"),
+            Self::InvalidType => write!(fmt, "unable to parse content type"),
+            Self::Encode(ref e) => write!(fmt, "failed to encode frame: {}", e),
+            Self::Utf8(ref e) => write!(fmt, "frame contains invalid UTF8: {}", e),
         }
     }
 }
@@ -52,8 +52,8 @@ impl Display for CodecError {
 impl Error for CodecError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match *self {
-            CodecError::Encode(ref e) => Some(e),
-            CodecError::Utf8(ref e) => Some(e),
+            Self::Encode(ref e) => Some(e),
+            Self::Utf8(ref e) => Some(e),
             _ => None,
         }
     }
@@ -61,18 +61,18 @@ impl Error for CodecError {
 
 impl From<IoError> for CodecError {
     fn from(error: IoError) -> Self {
-        CodecError::Encode(error)
+        Self::Encode(error)
     }
 }
 
 impl From<Utf8Error> for CodecError {
     fn from(error: Utf8Error) -> Self {
-        CodecError::Utf8(error)
+        Self::Utf8(error)
     }
 }
 
 #[derive(Clone, Debug, Default)]
-pub(crate) struct LspFrameCodec {
+pub struct LspFrameCodec {
     remaining_bytes: usize,
 }
 
@@ -104,7 +104,7 @@ impl Decoder for LspFrameCodec {
             return Ok(None);
         }
 
-        match parser::parse_message(&src) {
+        match parser::parse_message(src) {
             Ok((remaining, message)) => {
                 let message = str::from_utf8(message)?.to_string();
                 let len = src.len() - remaining.len();
@@ -124,13 +124,13 @@ impl Decoder for LspFrameCodec {
             Err(NomError((_, err))) | Err(NomFailure((_, err))) => loop {
                 // To prevent infinite loop, advance the cursor until the buffer is empty or
                 // the cursor reaches the next valid message.
-                use CodecError::*;
-                match parser::parse_message(&src) {
+                use CodecError::{InvalidLength, InvalidType, MissingHeader};
+                match parser::parse_message(src) {
                     Err(_) if !src.is_empty() => src.advance(1),
                     _ => match err {
                         NomErrorKind::Digit | NomErrorKind::MapRes => return Err(InvalidLength),
                         NomErrorKind::Char | NomErrorKind::IsNot => return Err(InvalidType),
-                        _ => return Err(CodecError::MissingHeader),
+                        _ => return Err(MissingHeader),
                     },
                 }
             },

@@ -8,7 +8,7 @@ use crate::lsp::{Message, Notification, Request, Response, ResponseResult};
 /// `source://` was chosen because it's used by [Metals Remote Language Server].
 ///
 /// [Metals Remote Language Server]: https://scalameta.org/metals/docs/contributors/remote-language-server.html
-pub(crate) fn remap_relative_uri(msg: &mut Message, cwd: &Url) -> Result<(), std::io::Error> {
+pub fn remap_relative_uri(msg: &mut Message, cwd: &Url) -> Result<(), std::io::Error> {
     match msg {
         Message::Notification(notification) => remap_notification(notification, cwd)?,
         Message::Request(request) => remap_request(request, cwd)?,

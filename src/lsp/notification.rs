@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// [notification message]: https://microsoft.github.io/language-server-protocol/specifications/specification-current/#notificationMessage
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "method")]
-pub(crate) enum Notification {
+pub enum Notification {
     // To Server
     // https://microsoft.github.io/language-server-protocol/specifications/specification-current/#initialized
     #[serde(rename = "initialized")]

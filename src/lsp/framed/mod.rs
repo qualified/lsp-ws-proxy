@@ -2,4 +2,4 @@
 mod codec;
 mod parser;
 
-pub(crate) use codec::{reader, writer};
+pub use codec::{reader, writer};
