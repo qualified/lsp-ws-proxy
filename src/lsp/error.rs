@@ -6,9 +6,7 @@
 
 use std::fmt::{self, Display, Formatter};
 
-use serde::de::Deserializer;
-use serde::ser::Serializer;
-use serde::{Deserialize, Serialize};
+use serde::{de::Deserializer, ser::Serializer, Deserialize, Serialize};
 use serde_json::Value;
 
 /// A list of numeric error codes used in JSON-RPC responses.

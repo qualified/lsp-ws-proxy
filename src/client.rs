@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use async_tungstenite::tungstenite as ws;
+use tokio_tungstenite::tungstenite as ws;
 
 use crate::lsp;
 

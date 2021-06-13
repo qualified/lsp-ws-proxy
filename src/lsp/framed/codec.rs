@@ -1,16 +1,17 @@
 // Codec for LSP JSON RPC frame.
 // Based on LanguageServerCodec from [tower-lsp](https://github.com/ebkalderon/tower-lsp).
 // Copyright (c) 2020 Eyal Kalderon. MIT License.
-// Ported to futures_codec.
 
-use std::error::Error;
-use std::fmt::{self, Display, Formatter};
-use std::io::{Error as IoError, Write};
-use std::str::{self, Utf8Error};
+use std::{
+    error::Error,
+    fmt::{self, Display, Formatter},
+    io::{Error as IoError, Write},
+    str::{self, Utf8Error},
+};
 
-use bytes::{buf::BufMutExt, Buf, BytesMut};
-use futures_codec::{Decoder, Encoder, FramedRead, FramedWrite};
-use futures_io::{AsyncRead, AsyncWrite};
+use bytes::{Buf, BufMut, BytesMut};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::{Decoder, Encoder, FramedRead, FramedWrite};
 
 use super::parser;
 
@@ -76,10 +77,9 @@ pub struct LspFrameCodec {
     remaining_bytes: usize,
 }
 
-impl Encoder for LspFrameCodec {
-    type Item = String;
+impl Encoder<String> for LspFrameCodec {
     type Error = CodecError;
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: String, dst: &mut BytesMut) -> Result<(), Self::Error> {
         if !item.is_empty() {
             // `Content-Length: ` + `\r\n\r\n` = 20
             dst.reserve(item.len() + number_of_digits(item.len()) + 20);
@@ -96,9 +96,11 @@ impl Decoder for LspFrameCodec {
     type Error = CodecError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        use nom::error::ErrorKind as NomErrorKind;
-        use nom::Err::{Error as NomError, Failure as NomFailure, Incomplete};
-        use nom::Needed;
+        use nom::{
+            error::ErrorKind as NomErrorKind,
+            Err::{Error as NomError, Failure as NomFailure, Incomplete},
+            Needed,
+        };
 
         if self.remaining_bytes > src.len() {
             return Ok(None);

@@ -4,13 +4,15 @@
 
 use std::str;
 
-use nom::branch::alt;
-use nom::bytes::streaming::{is_not, tag};
-use nom::character::streaming::{char, crlf, digit1, space0};
-use nom::combinator::{map_res, opt};
-use nom::multi::length_data;
-use nom::sequence::{delimited, terminated, tuple};
-use nom::IResult;
+use nom::{
+    branch::alt,
+    bytes::streaming::{is_not, tag},
+    character::streaming::{char, crlf, digit1, space0},
+    combinator::{map_res, opt},
+    multi::length_data,
+    sequence::{delimited, terminated, tuple},
+    IResult,
+};
 
 // Get JSON message from input using the Content-Length header.
 pub fn parse_message(input: &[u8]) -> IResult<&[u8], &[u8]> {
