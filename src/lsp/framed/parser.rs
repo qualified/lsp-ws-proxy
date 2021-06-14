@@ -26,7 +26,7 @@ pub fn parse_message(input: &[u8]) -> IResult<&[u8], &[u8]> {
 
     let header = map_res(header, |s: &[u8]| str::from_utf8(s));
     let length = map_res(header, |s: &str| s.parse::<usize>());
-    let message = length_data(length);
+    let mut message = length_data(length);
 
     message(input)
 }
@@ -72,12 +72,12 @@ mod tests {
         let sample = format!("Content-Length: {}\r\n\r\n", decoded.len());
         assert_eq!(
             parse_message(sample.as_bytes()),
-            Err(nom::Err::Incomplete(nom::Needed::Size(decoded.len())))
+            Err(nom::Err::Incomplete(nom::Needed::new(decoded.len())))
         );
 
         assert_eq!(
             parse_message((sample + "{").as_bytes()),
-            Err(nom::Err::Incomplete(nom::Needed::Size(decoded.len())))
+            Err(nom::Err::Incomplete(nom::Needed::new(decoded.len() - 1)))
         );
     }
 }

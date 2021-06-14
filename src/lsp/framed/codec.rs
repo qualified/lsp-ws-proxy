@@ -96,12 +96,6 @@ impl Decoder for LspFrameCodec {
     type Error = CodecError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        use nom::{
-            error::ErrorKind as NomErrorKind,
-            Err::{Error as NomError, Failure as NomFailure, Incomplete},
-            Needed,
-        };
-
         if self.remaining_bytes > src.len() {
             return Ok(None);
         }
@@ -116,26 +110,33 @@ impl Decoder for LspFrameCodec {
                 Ok(Some(message))
             }
 
-            Err(Incomplete(Needed::Size(needed))) => {
-                self.remaining_bytes = needed;
+            Err(nom::Err::Incomplete(nom::Needed::Size(needed))) => {
+                self.remaining_bytes = needed.get();
                 Ok(None)
             }
 
-            Err(Incomplete(Needed::Unknown)) => Ok(None),
+            Err(nom::Err::Incomplete(nom::Needed::Unknown)) => Ok(None),
 
-            Err(NomError((_, err))) | Err(NomFailure((_, err))) => loop {
-                // To prevent infinite loop, advance the cursor until the buffer is empty or
-                // the cursor reaches the next valid message.
-                use CodecError::{InvalidLength, InvalidType, MissingHeader};
-                match parser::parse_message(src) {
-                    Err(_) if !src.is_empty() => src.advance(1),
-                    _ => match err {
-                        NomErrorKind::Digit | NomErrorKind::MapRes => return Err(InvalidLength),
-                        NomErrorKind::Char | NomErrorKind::IsNot => return Err(InvalidType),
-                        _ => return Err(MissingHeader),
-                    },
+            Err(nom::Err::Error(err)) | Err(nom::Err::Failure(err)) => {
+                let code = err.code;
+                loop {
+                    // To prevent infinite loop, advance the cursor until the buffer is empty or
+                    // the cursor reaches the next valid message.
+                    use CodecError::{InvalidLength, InvalidType, MissingHeader};
+                    match parser::parse_message(src) {
+                        Err(_) if !src.is_empty() => src.advance(1),
+                        _ => match code {
+                            nom::error::ErrorKind::Digit | nom::error::ErrorKind::MapRes => {
+                                return Err(InvalidLength)
+                            }
+                            nom::error::ErrorKind::Char | nom::error::ErrorKind::IsNot => {
+                                return Err(InvalidType)
+                            }
+                            _ => return Err(MissingHeader),
+                        },
+                    }
                 }
-            },
+            }
         }
     }
 }
