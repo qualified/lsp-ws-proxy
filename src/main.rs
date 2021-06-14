@@ -5,12 +5,7 @@ use futures_util::{
     future::{select, Either},
     SinkExt, StreamExt,
 };
-use tokio::{
-    fs::File,
-    io::AsyncWriteExt,
-    net::TcpListener,
-    process::{Child, Command},
-};
+use tokio::{fs::File, io::AsyncWriteExt, net::TcpListener, process::Command};
 use tokio_tungstenite::{accept_async, tungstenite as ws};
 use url::Url;
 
@@ -86,6 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .args(&command[1..])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
+        .kill_on_drop(true)
         .spawn()?;
     let mut server_send = lsp::framed::writer(server.stdin.take().unwrap());
     let mut server_recv = lsp::framed::reader(server.stdout.take().unwrap());
@@ -201,7 +197,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    ensure_server_exited(&mut server).await?;
     Ok(())
 }
 
@@ -295,30 +290,6 @@ fn inspect_message_from_server(msg: &lsp::Message) {
 
         lsp::Message::Unknown(unknown) => {
             log::debug!("<-- Unknown: {:?}", unknown);
-        }
-    }
-}
-
-async fn ensure_server_exited(server: &mut Child) -> Result<(), std::io::Error> {
-    if let Some(status) = server.try_wait()? {
-        log::info!("Language Server exited");
-        log::info!("Status: {}", status);
-        Ok(())
-    } else {
-        log::info!("Language Server is still alive. Waiting 3s before killing.");
-        match tokio::time::timeout(Duration::from_secs(3), server.wait()).await {
-            Ok(Ok(status)) => {
-                log::info!("Language Server exited");
-                log::info!("Status: {}", status);
-                Ok(())
-            }
-
-            Ok(Err(err)) => Err(err),
-
-            Err(_) => {
-                log::info!("Killing Language Server...");
-                server.kill().await
-            }
         }
     }
 }
