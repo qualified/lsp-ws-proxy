@@ -1,7 +1,5 @@
 use std::str::FromStr;
 
-use tokio_tungstenite::tungstenite as ws;
-
 use crate::lsp;
 
 // Type to describe a message from the client conveniently.
@@ -11,21 +9,29 @@ pub enum Message {
     // Invalid JSON
     Invalid(String),
     // Close message
-    Close(Option<ws::protocol::CloseFrame<'static>>),
+    Close,
 }
 
 // Parse the message and ignore anything we don't care.
-pub async fn filter_map_ws_message(
-    wsm: Result<ws::Message, ws::Error>,
-) -> Option<Result<Message, ws::Error>> {
+pub async fn filter_map_warp_ws_message(
+    wsm: Result<warp::ws::Message, warp::Error>,
+) -> Option<Result<Message, warp::Error>> {
     match wsm {
-        Ok(ws::Message::Text(text)) => match lsp::Message::from_str(&text) {
-            Ok(msg) => Some(Ok(Message::Message(msg))),
-            Err(_) => Some(Ok(Message::Invalid(text))),
-        },
-        Ok(ws::Message::Close(frame)) => Some(Ok(Message::Close(frame))),
-        // Ignore any other message types
-        Ok(_) => None,
+        Ok(msg) => {
+            if msg.is_close() {
+                Some(Ok(Message::Close))
+            } else if msg.is_text() {
+                let text = msg.to_str().expect("text");
+                match lsp::Message::from_str(text) {
+                    Ok(msg) => Some(Ok(Message::Message(msg))),
+                    Err(_) => Some(Ok(Message::Invalid(text.to_owned()))),
+                }
+            } else {
+                // Ignore any other message types
+                None
+            }
+        }
+
         Err(err) => Some(Err(err)),
     }
 }
