@@ -69,7 +69,9 @@ struct Context {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned()))
+        .init();
 
     let (opts, command) = get_opts_and_command();
     let timeout = if opts.timeout == 0 {
@@ -92,15 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ws = warp::path::end()
         .and(warp::ws())
         .and(with_context(ctx))
-        .map(|ws: warp::ws::Ws, ctx| {
-            ws.on_upgrade(move |socket| async {
-                log::info!("connected");
-                if let Err(err) = connected(socket, ctx).await {
-                    log::error!("{}", err);
-                }
-                log::info!("disconnected");
-            })
-        });
+        .map(|ws: warp::ws::Ws, ctx| ws.on_upgrade(move |socket| on_upgrade(socket, ctx)));
     let healthz = warp::path::end().and(warp::get()).map(|| "OK");
     let routes = ws.or(healthz);
 
@@ -136,13 +130,14 @@ fn get_opts_and_command() -> (Options, Vec<String>) {
     (opts, splitted[1].to_vec())
 }
 
-async fn maybe_write_text_document(m: &lsp::Message) -> Result<(), std::io::Error> {
-    if let lsp::Message::Notification(lsp::Notification::DidSave { params }) = m {
+#[tracing::instrument(level = "debug", err, skip(msg))]
+async fn maybe_write_text_document(msg: &lsp::Message) -> Result<(), std::io::Error> {
+    if let lsp::Message::Notification(lsp::Notification::DidSave { params }) = msg {
         if let Some(text) = &params.text {
             let uri = &params.text_document.uri;
             if uri.scheme() == "file" {
                 if let Ok(path) = uri.to_file_path() {
-                    log::debug!("writing to {:?}", path);
+                    tracing::debug!("writing to {:?}", path);
                     let mut file = File::create(&path).await?;
                     file.write_all(text.as_bytes()).await?;
                     file.flush().await?;
@@ -151,56 +146,6 @@ async fn maybe_write_text_document(m: &lsp::Message) -> Result<(), std::io::Erro
         }
     }
     Ok(())
-}
-
-fn inspect_message_from_client(msg: &lsp::Message) {
-    match msg {
-        lsp::Message::Notification(notification) => {
-            log::debug!("--> Notification: {:?}", notification);
-        }
-
-        lsp::Message::Request(request) => {
-            log::debug!("--> Request: {:?}", request);
-        }
-
-        lsp::Message::Response(response) => {
-            log::debug!("--> Response: {:?}", response);
-        }
-
-        lsp::Message::Unknown(unknown) => {
-            log::debug!("--> Unknown: {:?}", unknown);
-        }
-    }
-}
-
-fn inspect_serialized_message_from_server(text: &str) {
-    if log::log_enabled!(log::Level::Debug) {
-        if let Ok(msg) = lsp::Message::from_str(text) {
-            inspect_message_from_server(&msg);
-        } else {
-            log::error!("<-- Invalid: {}", text);
-        }
-    }
-}
-
-fn inspect_message_from_server(msg: &lsp::Message) {
-    match msg {
-        lsp::Message::Notification(notification) => {
-            log::debug!("<-- Notification: {:?}", notification);
-        }
-
-        lsp::Message::Response(response) => {
-            log::debug!("<-- Response: {:?}", response);
-        }
-
-        lsp::Message::Request(request) => {
-            log::debug!("<-- Request: {:?}", request);
-        }
-
-        lsp::Message::Unknown(unknown) => {
-            log::debug!("<-- Unknown: {:?}", unknown);
-        }
-    }
 }
 
 fn parse_listen(value: &str) -> Result<String, String> {
@@ -215,16 +160,28 @@ fn parse_listen(value: &str) -> Result<String, String> {
     }
 }
 
+async fn on_upgrade(socket: warp::ws::WebSocket, ctx: Context) {
+    tracing::info!("connected");
+    if let Err(err) = connected(socket, ctx).await {
+        tracing::error!("connection error: {}", err);
+    }
+    tracing::info!("disconnected");
+}
+
+#[tracing::instrument(level = "debug", skip(ws, ctx), fields(command = ?ctx.command[0], remap = %ctx.remap, sync = %ctx.sync))]
 async fn connected(
     ws: warp::ws::WebSocket,
     ctx: Context,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    tracing::info!("starting {} in {}", ctx.command[0], ctx.cwd);
     let mut server = Command::new(&ctx.command[0])
         .args(&ctx.command[1..])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .kill_on_drop(true)
         .spawn()?;
+    tracing::debug!("running {}", ctx.command[0]);
+
     let mut server_send = lsp::framed::writer(server.stdin.take().unwrap());
     let mut server_recv = lsp::framed::reader(server.stdout.take().unwrap());
     let (mut client_send, client_recv) = ws.split();
@@ -244,21 +201,21 @@ async fn connected(
                 match from_client {
                     // Valid LSP message
                     Some(Ok(client::Message::Message(mut msg))) => {
-                        inspect_message_from_client(&msg);
                         if ctx.remap {
                             lsp::ext::remap_relative_uri(&mut msg, &ctx.cwd)?;
-                            log::debug!("Remapped relative URI");
-                            inspect_message_from_client(&msg);
+                            tracing::debug!("remapped relative URI from client");
                         }
                         if ctx.sync {
                             maybe_write_text_document(&msg).await?;
                         }
-                        server_send.send(serde_json::to_string(&msg)?).await?;
+                        let text = serde_json::to_string(&msg)?;
+                        tracing::debug!("-> {}", text);
+                        server_send.send(text).await?;
                     }
 
                     // Invalid JSON body
                     Some(Ok(client::Message::Invalid(text))) => {
-                        log::debug!("Received invalid JSON: {}", text);
+                        tracing::warn!("-> {}", text);
                         // Just forward it to the server as is.
                         server_send.send(text).await?;
                     }
@@ -266,17 +223,17 @@ async fn connected(
                     // Close message
                     Some(Ok(client::Message::Close)) => {
                         // The connection will terminate when None is received.
-                        log::info!("Received Close Message");
+                        tracing::info!("received Close message");
                     }
 
                     // WebSocket Error
                     Some(Err(err)) => {
-                        log::error!("{}", err);
+                        tracing::error!("websocket error: {}", err);
                     }
 
                     // Connection closed
                     None => {
-                        log::info!("Connection Closed");
+                        tracing::info!("connection closed");
                         break;
                     }
                 }
@@ -294,31 +251,29 @@ async fn connected(
                     Some(Ok(text)) => {
                         if ctx.remap {
                             if let Ok(mut msg) = lsp::Message::from_str(&text) {
-                                inspect_message_from_server(&msg);
                                 lsp::ext::remap_relative_uri(&mut msg, &ctx.cwd)?;
-                                log::debug!("Remapped relative URI");
-                                inspect_message_from_server(&msg);
-                                client_send
-                                    .send(warp::ws::Message::text(serde_json::to_string(&msg)?))
-                                    .await?;
+                                tracing::debug!("remapped relative URI from server");
+                                let text = serde_json::to_string(&msg)?;
+                                tracing::debug!("<- {}", text);
+                                client_send.send(warp::ws::Message::text(text)).await?;
                             } else {
-                                log::error!("<-- Invalid: {}", text);
+                                tracing::warn!("<- {}", text);
                                 client_send.send(warp::ws::Message::text(text)).await?;
                             }
                         } else {
-                            inspect_serialized_message_from_server(&text);
+                            tracing::debug!("<- {}", text);
                             client_send.send(warp::ws::Message::text(text)).await?;
                         }
                     }
 
                     // Codec Error
                     Some(Err(err)) => {
-                        log::error!("{}", err);
+                        tracing::error!("{}", err);
                     }
 
                     // Server exited
                     None => {
-                        log::error!("Server process exited unexpectedly");
+                        tracing::error!("server process exited unexpectedly");
                         client_send.send(warp::ws::Message::close()).await?;
                         break;
                     }
@@ -331,7 +286,7 @@ async fn connected(
             }
 
             Either::Right(_) => {
-                log::info!("Inactivity timeout reached. Closing");
+                tracing::info!("inactivity timeout reached, closing");
                 client_send.send(warp::ws::Message::close()).await?;
                 break;
             }
