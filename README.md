@@ -20,7 +20,7 @@ Examples:
   lsp-ws-proxy -l 8888 -- langserver --stdio
 
 Options:
-  -l, --listen      address or localhost's port to listen on (default: 9999)
+  -l, --listen      address or port to listen on (default: 0.0.0.0:9999)
   -t, --timeout     inactivity timeout in seconds
   -s, --sync        write text document to disk on save
   -r, --remap       remap relative uri (source://)

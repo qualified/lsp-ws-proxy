@@ -32,11 +32,11 @@ Examples:
   lsp-ws-proxy -l 8888 -- langserver --stdio
 */
 struct Options {
-    /// address or localhost's port to listen on (default: 9999)
+    /// address or port to listen on (default: 0.0.0.0:9999)
     #[argh(
         option,
         short = 'l',
-        default = "String::from(\"127.0.0.1:9999\")",
+        default = "String::from(\"0.0.0.0:9999\")",
         from_str_fn(parse_listen)
     )]
     listen: String,
@@ -149,9 +149,9 @@ async fn maybe_write_text_document(msg: &lsp::Message) -> Result<(), std::io::Er
 }
 
 fn parse_listen(value: &str) -> Result<String, String> {
-    // If a number is given, treat it as a localhost's port number
+    // Allow specifying only a port number.
     if value.chars().all(|c| c.is_ascii_digit()) {
-        return Ok(format!("127.0.0.1:{}", value));
+        return Ok(format!("0.0.0.0:{}", value));
     }
 
     match value.parse::<SocketAddr>() {
