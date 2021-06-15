@@ -23,19 +23,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
       - uses: actions-rs/toolchain@v1
         with:
           override: true
           toolchain: stable
           profile: minimal
+      - uses: Swatinem/rust-cache@v1
       - uses: actions-rs/cargo@v1
         with:
           command: build
@@ -59,20 +52,13 @@ jobs:
       TARGET: x86_64-unknown-linux-musl
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/cache@v2
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-musl-cargo-${{ hashFiles('**/Cargo.lock') }}
-
       - uses: actions-rs/toolchain@v1
         with:
           override: true
           toolchain: stable
           profile: minimal
           target: ${{ env.TARGET }}
+      - uses: Swatinem/rust-cache@v1
 
       - uses: actions-rs/cargo@v1
         with:
