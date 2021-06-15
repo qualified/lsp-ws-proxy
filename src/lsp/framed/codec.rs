@@ -106,8 +106,12 @@ impl Decoder for LspFrameCodec {
                 let len = src.len() - remaining.len();
                 src.advance(len);
                 self.remaining_bytes = 0;
-
-                Ok(Some(message))
+                // Ignore empty frame
+                if message.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(message))
+                }
             }
 
             Err(nom::Err::Incomplete(nom::Needed::Size(needed))) => {
@@ -119,22 +123,20 @@ impl Decoder for LspFrameCodec {
 
             Err(nom::Err::Error(err)) | Err(nom::Err::Failure(err)) => {
                 let code = err.code;
-                loop {
-                    // To prevent infinite loop, advance the cursor until the buffer is empty or
-                    // the cursor reaches the next valid message.
-                    use CodecError::{InvalidLength, InvalidType, MissingHeader};
-                    match parser::parse_message(src) {
-                        Err(_) if !src.is_empty() => src.advance(1),
-                        _ => match code {
-                            nom::error::ErrorKind::Digit | nom::error::ErrorKind::MapRes => {
-                                return Err(InvalidLength)
-                            }
-                            nom::error::ErrorKind::Char | nom::error::ErrorKind::IsNot => {
-                                return Err(InvalidType)
-                            }
-                            _ => return Err(MissingHeader),
-                        },
+                let parsed_bytes = src.len() - err.input.len();
+                src.advance(parsed_bytes);
+                match parser::find_next_message(src) {
+                    Ok((_, position)) => src.advance(position),
+                    Err(_) => src.advance(src.len()),
+                }
+                match code {
+                    nom::error::ErrorKind::Digit | nom::error::ErrorKind::MapRes => {
+                        Err(CodecError::InvalidLength)
                     }
+                    nom::error::ErrorKind::Char | nom::error::ErrorKind::IsNot => {
+                        Err(CodecError::InvalidType)
+                    }
+                    _ => Err(CodecError::MissingHeader),
                 }
             }
         }

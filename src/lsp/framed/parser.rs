@@ -6,9 +6,9 @@ use std::str;
 
 use nom::{
     branch::alt,
-    bytes::streaming::{is_not, tag},
+    bytes::streaming::{is_not, tag, take_until},
     character::streaming::{char, crlf, digit1, space0},
-    combinator::{map_res, opt},
+    combinator::{map, map_res, opt},
     multi::length_data,
     sequence::{delimited, terminated, tuple},
     IResult,
@@ -29,6 +29,10 @@ pub fn parse_message(input: &[u8]) -> IResult<&[u8], &[u8]> {
     let mut message = length_data(length);
 
     message(input)
+}
+
+pub fn find_next_message(input: &[u8]) -> IResult<&[u8], usize> {
+    map(take_until("Content-Length"), |s: &[u8]| s.len())(input)
 }
 
 #[cfg(test)]
