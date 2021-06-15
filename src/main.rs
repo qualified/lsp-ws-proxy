@@ -1,16 +1,18 @@
-use std::{process::Stdio, str::FromStr, time::Duration};
+use std::{convert::Infallible, net::SocketAddr, process::Stdio, str::FromStr};
 
 use argh::FromArgs;
-use async_fs::File;
-use async_io::{block_on, Timer};
-use async_net::{SocketAddr, TcpListener};
-use async_process::{Child, Command};
-use async_tungstenite::{accept_async, tungstenite as ws};
 use futures_util::{
     future::{select, Either},
-    AsyncWriteExt, SinkExt, StreamExt,
+    SinkExt, StreamExt,
+};
+use tokio::{
+    fs::File,
+    io::AsyncWriteExt,
+    process::Command,
+    time::{Duration, Instant},
 };
 use url::Url;
+use warp::Filter;
 
 mod client;
 mod lsp;
@@ -56,9 +58,18 @@ struct Options {
 // Large enough value used to disable inactivity timeout.
 const NO_TIMEOUT: u64 = 60 * 60 * 24 * 30 * 12;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // TODO Accept option for log level
-    env_logger::from_env(env_logger::Env::default().default_filter_or("info")).init();
+#[derive(Debug, Clone)]
+struct Context {
+    command: Vec<String>,
+    sync: bool,
+    remap: bool,
+    cwd: Url,
+    timeout: Duration,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let (opts, command) = get_opts_and_command();
     let timeout = if opts.timeout == 0 {
@@ -66,142 +77,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         Duration::from_secs(opts.timeout)
     };
-    let cwd = Url::from_directory_path(std::env::current_dir()?).unwrap();
 
-    block_on(async {
-        let listener = TcpListener::bind(&opts.listen)
-            .await
-            .expect("Failed to bind");
-        log::info!("Listening on {}", listener.local_addr()?);
+    let ctx = Context {
+        command,
+        sync: opts.sync,
+        remap: opts.remap,
+        cwd: Url::from_directory_path(std::env::current_dir()?)
+            .expect("valid url from current dir"),
+        timeout,
+    };
 
-        // Only accept single connection.
-        let (stream, _) = listener.accept().await?;
-        let stream = accept_async(stream)
-            .await
-            .expect("Error during the websocket handshake occurred");
-        log::info!("Connection Established");
-
-        let mut server = Command::new(&command[0])
-            .args(&command[1..])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()?;
-        let mut server_send = lsp::framed::writer(server.stdin.take().unwrap());
-        let mut server_recv = lsp::framed::reader(server.stdout.take().unwrap());
-        let (mut client_send, client_recv) = stream.split();
-        let mut client_recv = client_recv
-            .filter_map(client::filter_map_ws_message)
-            .boxed_local();
-
-        let mut client_msg = client_recv.next();
-        let mut server_msg = server_recv.next();
-        // Timer for inactivity timeout that resets whenever a message comes in.
-        let mut timer = Timer::after(timeout);
-        loop {
-            match select(select(client_msg, server_msg), timer).await {
-                // From Client
-                Either::Left((Either::Left((from_client, p_server_msg)), p_timer)) => {
-                    match from_client {
-                        // Valid LSP message
-                        Some(Ok(client::Message::Message(mut msg))) => {
-                            inspect_message_from_client(&msg);
-                            if opts.remap {
-                                lsp::ext::remap_relative_uri(&mut msg, &cwd)?;
-                                log::debug!("Remapped relative URI");
-                                inspect_message_from_client(&msg);
-                            }
-                            if opts.sync {
-                                maybe_write_text_document(&msg).await?;
-                            }
-                            server_send.send(serde_json::to_string(&msg)?).await?;
-                        }
-
-                        // Invalid JSON body
-                        Some(Ok(client::Message::Invalid(text))) => {
-                            log::debug!("Received invalid JSON: {}", text);
-                            // Just forward it to the server as is.
-                            server_send.send(text).await?;
-                        }
-
-                        // Close message
-                        Some(Ok(client::Message::Close(_))) => {
-                            // The connection will terminate when None is received.
-                            log::info!("Received Close Message");
-                        }
-
-                        // WebSocket Error
-                        Some(Err(err)) => {
-                            log::error!("{}", err);
-                        }
-
-                        // Connection closed
-                        None => {
-                            log::info!("Connection Closed");
-                            break;
-                        }
-                    }
-
-                    client_msg = client_recv.next();
-                    server_msg = p_server_msg;
-                    timer = p_timer;
-                    timer.set_after(timeout);
+    // TODO Limit concurrent connection. Can get messy when `sync` is used.
+    // TODO? Keep track of added files and remove them on disconnect?
+    let ws = warp::path::end()
+        .and(warp::ws())
+        .and(with_context(ctx))
+        .map(|ws: warp::ws::Ws, ctx| {
+            ws.on_upgrade(move |socket| async {
+                log::info!("connected");
+                if let Err(err) = connected(socket, ctx).await {
+                    log::error!("{}", err);
                 }
+                log::info!("disconnected");
+            })
+        });
+    let healthz = warp::path::end().and(warp::get()).map(|| "OK");
+    let routes = ws.or(healthz);
 
-                // From Server
-                Either::Left((Either::Right((from_server, p_client_msg)), p_timer)) => {
-                    match from_server {
-                        // Serialized LSP Message
-                        Some(Ok(text)) => {
-                            if opts.remap {
-                                if let Ok(mut msg) = lsp::Message::from_str(&text) {
-                                    inspect_message_from_server(&msg);
-                                    lsp::ext::remap_relative_uri(&mut msg, &cwd)?;
-                                    log::debug!("Remapped relative URI");
-                                    inspect_message_from_server(&msg);
-                                    client_send
-                                        .send(ws::Message::text(serde_json::to_string(&msg)?))
-                                        .await?;
-                                } else {
-                                    log::error!("<-- Invalid: {}", text);
-                                    client_send.send(ws::Message::text(text)).await?;
-                                }
-                            } else {
-                                inspect_serialized_message_from_server(&text);
-                                client_send.send(ws::Message::text(text)).await?;
-                            }
-                        }
-
-                        // Codec Error
-                        Some(Err(err)) => {
-                            log::error!("{}", err);
-                        }
-
-                        // Server exited
-                        None => {
-                            log::error!("Server process exited unexpectedly");
-                            client_send.send(ws::Message::Close(None)).await?;
-                            break;
-                        }
-                    }
-
-                    client_msg = p_client_msg;
-                    server_msg = server_recv.next();
-                    timer = p_timer;
-                    timer.set_after(timeout);
-                }
-
-                // Inactivity Timeout
-                Either::Right(_) => {
-                    log::info!("Inactivity timeout reached. Closing");
-                    client_send.send(ws::Message::Close(None)).await?;
-                    break;
-                }
-            }
-        }
-
-        ensure_server_exited(&mut server).await?;
-        Ok(())
-    })
+    let addr = opts.listen.parse::<SocketAddr>().expect("valid addr");
+    warp::serve(routes).run(addr).await;
+    Ok(())
 }
 
 fn get_opts_and_command() -> (Options, Vec<String>) {
@@ -298,49 +203,6 @@ fn inspect_message_from_server(msg: &lsp::Message) {
     }
 }
 
-async fn ensure_server_exited(server: &mut Child) -> Result<(), std::io::Error> {
-    if let Some(status) = server.try_status()? {
-        log::info!("Language Server exited");
-        log::info!("Status: {}", status);
-        Ok(())
-    } else {
-        log::info!("Language Server is still alive. Waiting 3s before killing.");
-        let status = Box::pin(server.status());
-        let timeout = Timer::after(Duration::from_secs(3));
-        match select(status, timeout).await {
-            Either::Left((Ok(status), _)) => {
-                log::info!("Language Server exited");
-                log::info!("Status: {}", status);
-                Ok(())
-            }
-            Either::Left((Err(err), _)) => Err(err),
-
-            Either::Right(_) => {
-                log::info!("Killing Language Server...");
-                match server.kill() {
-                    Ok(_) => {
-                        log::info!("Killed Language Server");
-                        log::info!("Status: {}", server.status().await?);
-                        Ok(())
-                    }
-
-                    Err(err) => {
-                        // Ok if the process had already exited.
-                        if err.kind() == std::io::ErrorKind::InvalidInput {
-                            log::info!("Language Server had already exited");
-                            log::info!("Status: {}", server.status().await?);
-                            Ok(())
-                        } else {
-                            log::error!("Failed to kill Language Server: {}", err);
-                            Err(err)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 fn parse_listen(value: &str) -> Result<String, String> {
     // If a number is given, treat it as a localhost's port number
     if value.chars().all(|c| c.is_ascii_digit()) {
@@ -351,4 +213,134 @@ fn parse_listen(value: &str) -> Result<String, String> {
         Ok(_) => Ok(String::from(value)),
         Err(_) => Err(format!("{} cannot be parsed as SocketAddr", value)),
     }
+}
+
+async fn connected(
+    ws: warp::ws::WebSocket,
+    ctx: Context,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut server = Command::new(&ctx.command[0])
+        .args(&ctx.command[1..])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .kill_on_drop(true)
+        .spawn()?;
+    let mut server_send = lsp::framed::writer(server.stdin.take().unwrap());
+    let mut server_recv = lsp::framed::reader(server.stdout.take().unwrap());
+    let (mut client_send, client_recv) = ws.split();
+    let mut client_recv = client_recv
+        .filter_map(client::filter_map_warp_ws_message)
+        .boxed();
+
+    let mut client_msg = client_recv.next();
+    let mut server_msg = server_recv.next();
+    let timer = tokio::time::sleep(ctx.timeout);
+    tokio::pin!(timer);
+
+    loop {
+        match select(select(client_msg, server_msg), timer).await {
+            // From Client
+            Either::Left((Either::Left((from_client, p_server_msg)), p_timer)) => {
+                match from_client {
+                    // Valid LSP message
+                    Some(Ok(client::Message::Message(mut msg))) => {
+                        inspect_message_from_client(&msg);
+                        if ctx.remap {
+                            lsp::ext::remap_relative_uri(&mut msg, &ctx.cwd)?;
+                            log::debug!("Remapped relative URI");
+                            inspect_message_from_client(&msg);
+                        }
+                        if ctx.sync {
+                            maybe_write_text_document(&msg).await?;
+                        }
+                        server_send.send(serde_json::to_string(&msg)?).await?;
+                    }
+
+                    // Invalid JSON body
+                    Some(Ok(client::Message::Invalid(text))) => {
+                        log::debug!("Received invalid JSON: {}", text);
+                        // Just forward it to the server as is.
+                        server_send.send(text).await?;
+                    }
+
+                    // Close message
+                    Some(Ok(client::Message::Close)) => {
+                        // The connection will terminate when None is received.
+                        log::info!("Received Close Message");
+                    }
+
+                    // WebSocket Error
+                    Some(Err(err)) => {
+                        log::error!("{}", err);
+                    }
+
+                    // Connection closed
+                    None => {
+                        log::info!("Connection Closed");
+                        break;
+                    }
+                }
+
+                client_msg = client_recv.next();
+                server_msg = p_server_msg;
+                timer = p_timer;
+                timer.as_mut().reset(Instant::now() + ctx.timeout);
+            }
+
+            // From Server
+            Either::Left((Either::Right((from_server, p_client_msg)), p_timer)) => {
+                match from_server {
+                    // Serialized LSP Message
+                    Some(Ok(text)) => {
+                        if ctx.remap {
+                            if let Ok(mut msg) = lsp::Message::from_str(&text) {
+                                inspect_message_from_server(&msg);
+                                lsp::ext::remap_relative_uri(&mut msg, &ctx.cwd)?;
+                                log::debug!("Remapped relative URI");
+                                inspect_message_from_server(&msg);
+                                client_send
+                                    .send(warp::ws::Message::text(serde_json::to_string(&msg)?))
+                                    .await?;
+                            } else {
+                                log::error!("<-- Invalid: {}", text);
+                                client_send.send(warp::ws::Message::text(text)).await?;
+                            }
+                        } else {
+                            inspect_serialized_message_from_server(&text);
+                            client_send.send(warp::ws::Message::text(text)).await?;
+                        }
+                    }
+
+                    // Codec Error
+                    Some(Err(err)) => {
+                        log::error!("{}", err);
+                    }
+
+                    // Server exited
+                    None => {
+                        log::error!("Server process exited unexpectedly");
+                        client_send.send(warp::ws::Message::close()).await?;
+                        break;
+                    }
+                }
+
+                client_msg = p_client_msg;
+                server_msg = server_recv.next();
+                timer = p_timer;
+                timer.as_mut().reset(Instant::now() + ctx.timeout);
+            }
+
+            Either::Right(_) => {
+                log::info!("Inactivity timeout reached. Closing");
+                client_send.send(warp::ws::Message::close()).await?;
+                break;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn with_context(context: Context) -> impl Filter<Extract = (Context,), Error = Infallible> + Clone {
+    warp::any().map(move || context.clone())
 }

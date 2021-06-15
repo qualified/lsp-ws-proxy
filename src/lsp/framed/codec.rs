@@ -1,16 +1,17 @@
 // Codec for LSP JSON RPC frame.
 // Based on LanguageServerCodec from [tower-lsp](https://github.com/ebkalderon/tower-lsp).
 // Copyright (c) 2020 Eyal Kalderon. MIT License.
-// Ported to futures_codec.
 
-use std::error::Error;
-use std::fmt::{self, Display, Formatter};
-use std::io::{Error as IoError, Write};
-use std::str::{self, Utf8Error};
+use std::{
+    error::Error,
+    fmt::{self, Display, Formatter},
+    io::{Error as IoError, Write},
+    str::{self, Utf8Error},
+};
 
-use bytes::{buf::BufMutExt, Buf, BytesMut};
-use futures_codec::{Decoder, Encoder, FramedRead, FramedWrite};
-use futures_io::{AsyncRead, AsyncWrite};
+use bytes::{Buf, BufMut, BytesMut};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio_util::codec::{Decoder, Encoder, FramedRead, FramedWrite};
 
 use super::parser;
 
@@ -76,10 +77,9 @@ pub struct LspFrameCodec {
     remaining_bytes: usize,
 }
 
-impl Encoder for LspFrameCodec {
-    type Item = String;
+impl Encoder<String> for LspFrameCodec {
     type Error = CodecError;
-    fn encode(&mut self, item: Self::Item, dst: &mut BytesMut) -> Result<(), Self::Error> {
+    fn encode(&mut self, item: String, dst: &mut BytesMut) -> Result<(), Self::Error> {
         if !item.is_empty() {
             // `Content-Length: ` + `\r\n\r\n` = 20
             dst.reserve(item.len() + number_of_digits(item.len()) + 20);
@@ -96,10 +96,6 @@ impl Decoder for LspFrameCodec {
     type Error = CodecError;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        use nom::error::ErrorKind as NomErrorKind;
-        use nom::Err::{Error as NomError, Failure as NomFailure, Incomplete};
-        use nom::Needed;
-
         if self.remaining_bytes > src.len() {
             return Ok(None);
         }
@@ -110,30 +106,39 @@ impl Decoder for LspFrameCodec {
                 let len = src.len() - remaining.len();
                 src.advance(len);
                 self.remaining_bytes = 0;
-
-                Ok(Some(message))
+                // Ignore empty frame
+                if message.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(message))
+                }
             }
 
-            Err(Incomplete(Needed::Size(needed))) => {
-                self.remaining_bytes = needed;
+            Err(nom::Err::Incomplete(nom::Needed::Size(needed))) => {
+                self.remaining_bytes = needed.get();
                 Ok(None)
             }
 
-            Err(Incomplete(Needed::Unknown)) => Ok(None),
+            Err(nom::Err::Incomplete(nom::Needed::Unknown)) => Ok(None),
 
-            Err(NomError((_, err))) | Err(NomFailure((_, err))) => loop {
-                // To prevent infinite loop, advance the cursor until the buffer is empty or
-                // the cursor reaches the next valid message.
-                use CodecError::{InvalidLength, InvalidType, MissingHeader};
-                match parser::parse_message(src) {
-                    Err(_) if !src.is_empty() => src.advance(1),
-                    _ => match err {
-                        NomErrorKind::Digit | NomErrorKind::MapRes => return Err(InvalidLength),
-                        NomErrorKind::Char | NomErrorKind::IsNot => return Err(InvalidType),
-                        _ => return Err(MissingHeader),
-                    },
+            Err(nom::Err::Error(err)) | Err(nom::Err::Failure(err)) => {
+                let code = err.code;
+                let parsed_bytes = src.len() - err.input.len();
+                src.advance(parsed_bytes);
+                match parser::find_next_message(src) {
+                    Ok((_, position)) => src.advance(position),
+                    Err(_) => src.advance(src.len()),
                 }
-            },
+                match code {
+                    nom::error::ErrorKind::Digit | nom::error::ErrorKind::MapRes => {
+                        Err(CodecError::InvalidLength)
+                    }
+                    nom::error::ErrorKind::Char | nom::error::ErrorKind::IsNot => {
+                        Err(CodecError::InvalidType)
+                    }
+                    _ => Err(CodecError::MissingHeader),
+                }
+            }
         }
     }
 }
