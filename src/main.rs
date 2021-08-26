@@ -6,7 +6,7 @@ use futures_util::{
     SinkExt, StreamExt,
 };
 use tokio::{
-    fs::File,
+    fs::{self, File},
     io::AsyncWriteExt,
     process::Command,
     time::{Duration, Instant},
@@ -137,10 +137,13 @@ async fn maybe_write_text_document(msg: &lsp::Message) -> Result<(), std::io::Er
             let uri = &params.text_document.uri;
             if uri.scheme() == "file" {
                 if let Ok(path) = uri.to_file_path() {
-                    tracing::debug!("writing to {:?}", path);
-                    let mut file = File::create(&path).await?;
-                    file.write_all(text.as_bytes()).await?;
-                    file.flush().await?;
+                    if let Some(parent) = path.parent() {
+                        tracing::debug!("writing to {:?}", path);
+                        fs::create_dir_all(parent).await?;
+                        let mut file = File::create(&path).await?;
+                        file.write_all(text.as_bytes()).await?;
+                        file.flush().await?;
+                    }
                 }
             }
         }
