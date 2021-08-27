@@ -12,8 +12,9 @@ use tokio::{
     time::{Duration, Instant},
 };
 use url::Url;
-use warp::Filter;
+use warp::{Filter, Rejection, Reply};
 
+mod api;
 mod client;
 mod lsp;
 
@@ -44,7 +45,7 @@ struct Options {
     /// inactivity timeout in seconds
     #[argh(option, short = 't', default = "0")]
     timeout: u64,
-    /// write text document to disk on save
+    /// write text document to disk on save, and enable `/files` endpoint
     #[argh(switch, short = 's')]
     sync: bool,
     /// remap relative uri (source://)
@@ -80,27 +81,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Duration::from_secs(opts.timeout)
     };
 
-    let ctx = Context {
+    let cwd = std::env::current_dir()?;
+    // TODO Limit concurrent connection. Can get messy when `sync` is used.
+    // TODO? Keep track of added files and remove them on disconnect?
+    let ws = ws_handler(Context {
         command,
         sync: opts.sync,
         remap: opts.remap,
-        cwd: Url::from_directory_path(std::env::current_dir()?)
-            .expect("valid url from current dir"),
+        cwd: Url::from_directory_path(&cwd).expect("valid url from current dir"),
         timeout,
-    };
+    });
+    let healthz = warp::path::end().and(warp::get()).map(|| "OK");
+    let addr = opts.listen.parse::<SocketAddr>().expect("valid addr");
+    // Enable `/files` endpoint if sync
+    if opts.sync {
+        let files = api::files::handler(api::files::Context { cwd });
+        warp::serve(ws.or(healthz).or(files)).run(addr).await;
+    } else {
+        warp::serve(ws.or(healthz)).run(addr).await;
+    }
+    Ok(())
+}
 
-    // TODO Limit concurrent connection. Can get messy when `sync` is used.
-    // TODO? Keep track of added files and remove them on disconnect?
-    let ws = warp::path::end()
+fn ws_handler(ctx: Context) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
+    warp::path::end()
         .and(warp::ws())
         .and(with_context(ctx))
-        .map(|ws: warp::ws::Ws, ctx| ws.on_upgrade(move |socket| on_upgrade(socket, ctx)));
-    let healthz = warp::path::end().and(warp::get()).map(|| "OK");
-    let routes = ws.or(healthz);
-
-    let addr = opts.listen.parse::<SocketAddr>().expect("valid addr");
-    warp::serve(routes).run(addr).await;
-    Ok(())
+        .map(|ws: warp::ws::Ws, ctx| ws.on_upgrade(move |socket| on_upgrade(socket, ctx)))
 }
 
 fn get_opts_and_command() -> (Options, Vec<String>) {
