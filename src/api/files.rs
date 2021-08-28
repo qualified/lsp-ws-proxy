@@ -3,8 +3,10 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use lsp_types::{FileChangeType, FileEvent};
 use thiserror::Error;
 use tokio::fs;
+use url::Url;
 use warp::{http::StatusCode, Filter, Rejection, Reply};
 
 use super::{json_body, json_response, with_context};
@@ -12,30 +14,30 @@ use super::{json_body, json_response, with_context};
 #[derive(Debug, Error)]
 enum Error {
     #[error("path {0} must be relative")]
-    NotRelativePath(PathBuf),
+    NotRelativePath(String),
 
     #[error("failed to create dirs {path}: {source}")]
     CreateDirs {
-        path: PathBuf,
+        path: String,
         source: std::io::Error,
     },
 
     #[error("failed to write {path}: {source}")]
     WriteFile {
-        path: PathBuf,
+        path: String,
         source: std::io::Error,
     },
 
     #[error("failed to remove {path}: {source}")]
     RemoveFile {
-        path: PathBuf,
+        path: String,
         source: std::io::Error,
     },
 
     #[error("failed to rename {from} to {to}: {source}")]
     RenameFile {
-        from: PathBuf,
-        to: PathBuf,
+        from: String,
+        to: String,
         source: std::io::Error,
     },
 }
@@ -59,21 +61,24 @@ enum Operation {
     ///
     /// This will create a file if it does not exist, and will replace its contents if it does.
     /// Any missing directories are also created.
-    Write { path: PathBuf, contents: String },
+    Write { path: String, contents: String },
 
     /// Remove a file at relative `path`.
     ///
     /// Errors if the file doesn't exist at path.
-    Remove { path: PathBuf },
+    Remove { path: String },
 
     /// Rename a file or directory at relative path `from` to `to`.
     /// Any missing directories are created.
-    Rename { from: PathBuf, to: PathBuf },
+    Rename { from: String, to: String },
 }
 
 impl Operation {
     /// Perform operation relative to `cwd`.
-    async fn perform<P: AsRef<Path>>(&self, cwd: P) -> Result<(), Error> {
+    async fn perform<P>(&self, cwd: P, remap: bool) -> Result<Vec<FileEvent>, Error>
+    where
+        P: AsRef<Path>,
+    {
         match self {
             Operation::Write { path, contents } => {
                 ensure_relative(path)?;
@@ -81,12 +86,22 @@ impl Operation {
                 create_parent_dirs(&cwd, path).await?;
                 tracing::debug!("writing file {:?}", path);
                 let apath = cwd.as_ref().join(path);
+                let create = !apath.exists();
                 fs::write(&apath, contents.as_bytes())
                     .await
                     .map_err(|source| Error::WriteFile {
                         path: path.to_owned(),
                         source,
-                    })
+                    })?;
+
+                Ok(vec![FileEvent::new(
+                    path_uri(path, &apath, remap),
+                    if create {
+                        FileChangeType::Created
+                    } else {
+                        FileChangeType::Changed
+                    },
+                )])
             }
 
             Operation::Remove { path } => {
@@ -99,7 +114,12 @@ impl Operation {
                     .map_err(|source| Error::RemoveFile {
                         path: path.to_owned(),
                         source,
-                    })
+                    })?;
+
+                Ok(vec![FileEvent::new(
+                    path_uri(path, &apath, remap),
+                    FileChangeType::Deleted,
+                )])
             }
 
             Operation::Rename { from, to } => {
@@ -110,21 +130,33 @@ impl Operation {
                 tracing::debug!("renaming file {:?} to {:?}", from, to);
                 let src = cwd.as_ref().join(from);
                 let dst = cwd.as_ref().join(to);
+                let create = !dst.exists();
                 fs::rename(&src, &dst)
                     .await
                     .map_err(|source| Error::RenameFile {
                         from: from.to_owned(),
                         to: to.to_owned(),
                         source,
-                    })
+                    })?;
+
+                Ok(vec![
+                    FileEvent::new(path_uri(from, &src, remap), FileChangeType::Deleted),
+                    FileEvent::new(
+                        path_uri(to, &dst, remap),
+                        if create {
+                            FileChangeType::Created
+                        } else {
+                            FileChangeType::Changed
+                        },
+                    ),
+                ])
             }
         }
     }
 }
 
-fn ensure_relative<P: AsRef<Path>>(path: P) -> Result<(), Error> {
-    let path = path.as_ref();
-    if path.is_absolute() {
+fn ensure_relative(path: &str) -> Result<(), Error> {
+    if Path::new(path).is_absolute() {
         Err(Error::NotRelativePath(path.to_owned()))
     } else {
         Ok(())
@@ -141,17 +173,41 @@ where
         fs::create_dir_all(cwd.as_ref().join(parent))
             .await
             .map_err(|source| Error::CreateDirs {
-                path: parent.to_owned(),
+                path: parent.to_str().expect("utf-8").to_owned(),
                 source,
             })?;
     }
     Ok(())
 }
 
-// TODO? Include `changes` for `workspace/didChangeWatchedFiles` notification?
-//       Should respect `remap` option for `uri`.
+fn path_uri<P>(rel_path: &str, abs_path: P, remap: bool) -> Url
+where
+    P: AsRef<Path>,
+{
+    let is_dir = abs_path.as_ref().is_dir();
+    if remap {
+        let uri = format!(
+            "source://{}{}",
+            rel_path,
+            if is_dir && !rel_path.ends_with('/') {
+                "/"
+            } else {
+                ""
+            }
+        );
+        Url::parse(&uri).expect("valid uri")
+    } else if is_dir {
+        Url::from_directory_path(&abs_path).expect("no error with absolute path")
+    } else {
+        Url::from_file_path(&abs_path).expect("no error with absolute path")
+    }
+}
+
 #[derive(Debug, serde::Serialize)]
 struct Response {
+    /// `FileEvent`s for `workspace/didChangeWatchedFiles` notification.
+    changes: Vec<FileEvent>,
+    /// Any errors that occured trying to perform operations.
     #[serde(skip_serializing_if = "Option::is_none")]
     errors: Option<Vec<OperationError>>,
 }
@@ -165,6 +221,7 @@ struct OperationError {
 #[derive(Debug, Clone)]
 pub struct Context {
     pub cwd: PathBuf,
+    pub remap: bool,
 }
 
 // TODO Handle desrialize error rejection.
@@ -181,13 +238,19 @@ pub fn handler(ctx: Context) -> impl Filter<Extract = impl Reply, Error = Reject
 #[tracing::instrument(level = "debug", skip(ctx, payload))]
 async fn handle_operations(ctx: Context, payload: Payload) -> Result<impl Reply, Infallible> {
     let mut errors = Vec::new();
+    let mut changes = Vec::new();
     // Do them one by one in order
     for op in payload.operations {
-        if let Err(err) = op.perform(&ctx.cwd).await {
-            errors.push(OperationError {
-                operation: op,
-                reason: err.to_string(),
-            });
+        match op.perform(&ctx.cwd, ctx.remap).await {
+            Ok(mut events) => {
+                changes.append(&mut events);
+            }
+            Err(err) => {
+                errors.push(OperationError {
+                    operation: op,
+                    reason: err.to_string(),
+                });
+            }
         }
     }
 
@@ -196,5 +259,5 @@ async fn handle_operations(ctx: Context, payload: Payload) -> Result<impl Reply,
     } else {
         (Some(errors), StatusCode::UNPROCESSABLE_ENTITY)
     };
-    Ok(json_response(&Response { errors }, status))
+    Ok(json_response(&Response { changes, errors }, status))
 }

@@ -76,7 +76,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = opts.listen.parse::<SocketAddr>().expect("valid addr");
     // Enable `/files` endpoint if sync
     if opts.sync {
-        let files = api::files::handler(api::files::Context { cwd });
+        let files = api::files::handler(api::files::Context {
+            cwd,
+            remap: opts.remap,
+        });
         warp::serve(proxy.or(healthz).or(files)).run(addr).await;
     } else {
         warp::serve(proxy.or(healthz)).run(addr).await;
