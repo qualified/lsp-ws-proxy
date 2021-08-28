@@ -1,4 +1,4 @@
-use std::{convert::Infallible, process::Stdio, str::FromStr};
+use std::{process::Stdio, str::FromStr};
 
 use futures_util::{
     future::{select, Either},
@@ -14,6 +14,8 @@ use url::Url;
 use warp::{Filter, Rejection, Reply};
 
 use crate::lsp;
+
+use super::with_context;
 
 #[derive(Debug, Clone)]
 pub struct Context {
@@ -185,10 +187,6 @@ async fn connected(
     }
 
     Ok(())
-}
-
-fn with_context(context: Context) -> impl Filter<Extract = (Context,), Error = Infallible> + Clone {
-    warp::any().map(move || context.clone())
 }
 
 // Type to describe a message from the client conveniently.

@@ -5,7 +5,9 @@ use std::{
 
 use thiserror::Error;
 use tokio::fs;
-use warp::{http::StatusCode, reply, Filter, Rejection, Reply};
+use warp::{http::StatusCode, Filter, Rejection, Reply};
+
+use super::{json_body, json_response, with_context};
 
 #[derive(Debug, Error)]
 enum Error {
@@ -195,22 +197,4 @@ async fn handle_operations(ctx: Context, payload: Payload) -> Result<impl Reply,
         (Some(errors), StatusCode::UNPROCESSABLE_ENTITY)
     };
     Ok(json_response(&Response { errors }, status))
-}
-
-fn with_context<T>(ctx: T) -> impl Filter<Extract = (T,), Error = Infallible> + Clone
-where
-    T: Clone + Send,
-{
-    warp::any().map(move || ctx.clone())
-}
-
-fn json_body<T>() -> impl Filter<Extract = (T,), Error = Rejection> + Clone
-where
-    T: serde::de::DeserializeOwned + Send,
-{
-    warp::body::content_length_limit(2 * 1024 * 1024).and(warp::body::json())
-}
-
-fn json_response<T: serde::Serialize>(res: &T, status: StatusCode) -> reply::Response {
-    reply::with_status(reply::json(res), status).into_response()
 }
