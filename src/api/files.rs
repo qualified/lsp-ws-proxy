@@ -224,7 +224,6 @@ pub struct Context {
     pub remap: bool,
 }
 
-// TODO Handle desrialize error rejection.
 /// Handler for `POST /files`
 pub fn handler(ctx: Context) -> impl Filter<Extract = impl Reply, Error = Rejection> + Clone {
     warp::post()

@@ -80,9 +80,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             cwd,
             remap: opts.remap,
         });
-        warp::serve(proxy.or(healthz).or(files)).run(addr).await;
+        warp::serve(proxy.or(healthz).or(files).recover(api::recover))
+            .run(addr)
+            .await;
     } else {
-        warp::serve(proxy.or(healthz)).run(addr).await;
+        warp::serve(proxy.or(healthz).recover(api::recover))
+            .run(addr)
+            .await;
     }
     Ok(())
 }
