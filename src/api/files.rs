@@ -65,11 +65,14 @@ enum Operation {
 
     /// Remove a file at relative `path`.
     ///
-    /// Errors if the file doesn't exist at path.
+    /// Any empty parent directories under `cwd` are also removed.
+    /// Errors if `path` doesn't exist, or is not a file.
     Remove { path: String },
 
     /// Rename a file or directory at relative path `from` to `to`.
+    ///
     /// Any missing directories are created.
+    /// Any empty parent directories under `cwd` as a result of renaming are removed.
     Rename { from: String, to: String },
 }
 
@@ -115,6 +118,7 @@ impl Operation {
                         path: path.to_owned(),
                         source,
                     })?;
+                remove_empty_parents(&cwd, path).await;
 
                 Ok(vec![FileEvent::new(
                     path_uri(path, &apath, remap),
@@ -138,6 +142,7 @@ impl Operation {
                         to: to.to_owned(),
                         source,
                     })?;
+                remove_empty_parents(&cwd, from).await;
 
                 Ok(vec![
                     FileEvent::new(path_uri(from, &src, remap), FileChangeType::Deleted),
@@ -178,6 +183,24 @@ where
             })?;
     }
     Ok(())
+}
+
+/// Remove empty parents of relative `path` after removing or renaming.
+async fn remove_empty_parents<P, Q>(cwd: P, path: Q)
+where
+    P: AsRef<Path>,
+    Q: AsRef<Path>,
+{
+    let mut path = path.as_ref();
+    while let Some(parent) = path.parent() {
+        // Fails if the directory isn't empty.
+        if fs::remove_dir(cwd.as_ref().join(parent)).await.is_ok() {
+            tracing::debug!("removed empty parent {:?}", parent);
+            path = parent
+        } else {
+            break;
+        }
+    }
 }
 
 fn path_uri<P>(rel_path: &str, abs_path: P, remap: bool) -> Url
