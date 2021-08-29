@@ -39,6 +39,8 @@ pub async fn recover(err: Rejection) -> Result<impl Reply, Rejection> {
             }
         }
         ("Bad Request", StatusCode::BAD_REQUEST)
+    } else if err.find::<warp::reject::UnsupportedMediaType>().is_some() {
+        ("Unsupported Media Type", StatusCode::UNSUPPORTED_MEDIA_TYPE)
     } else if err.find::<warp::reject::PayloadTooLarge>().is_some() {
         ("Payload Too Large", StatusCode::PAYLOAD_TOO_LARGE)
     } else if err.find::<warp::reject::MethodNotAllowed>().is_some() {
