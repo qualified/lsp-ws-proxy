@@ -22,7 +22,8 @@ Examples:
 Options:
   -l, --listen      address or port to listen on (default: 0.0.0.0:9999)
   -t, --timeout     inactivity timeout in seconds
-  -s, --sync        write text document to disk on save
+  -s, --sync        write text document to disk on save, and enable `/files`
+                    endpoint
   -r, --remap       remap relative uri (source://)
   -v, --version     show version and exit
   --help            display usage information
@@ -40,6 +41,7 @@ See [qualified/lsps] for an example of using proxied [Rust Analyzer][rust-analyz
 - [x] Proxy messages
 - [x] Inactivity timeout
 - [x] Synchronize files
+- [x] Manipulate remote files with `POST /files`
 - [x] Remap relative `DocumentUri` (`source://`)
 
 [codemirror]: https://codemirror.net/
