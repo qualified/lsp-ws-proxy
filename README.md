@@ -7,7 +7,7 @@ WebSocket proxy for Language Servers.
 ```
 $ lsp-ws-proxy --help
 
-Usage: lsp-ws-proxy [-l <listen>] [-t <timeout>] [-s] [-r] [-v]
+Usage: lsp-ws-proxy [-l <listen>] [-s] [-r] [-v]
 
 Start WebSocket proxy for the LSP Server.
 Anything after the option delimiter is used to start the server.
@@ -21,7 +21,6 @@ Examples:
 
 Options:
   -l, --listen      address or port to listen on (default: 0.0.0.0:9999)
-  -t, --timeout     inactivity timeout in seconds
   -s, --sync        write text document to disk on save, and enable `/files`
                     endpoint
   -r, --remap       remap relative uri (source://)
@@ -39,7 +38,6 @@ See [qualified/lsps] for an example of using proxied [Rust Analyzer][rust-analyz
 ## Features
 
 - [x] Proxy messages
-- [x] Inactivity timeout
 - [x] Synchronize files
 - [x] Manipulate remote files with `POST /files`
 - [x] Remap relative `DocumentUri` (`source://`)

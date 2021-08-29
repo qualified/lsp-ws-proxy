@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 
 use argh::FromArgs;
-use tokio::time::Duration;
 use url::Url;
 use warp::{http, Filter};
 
@@ -31,10 +30,6 @@ struct Options {
         from_str_fn(parse_listen)
     )]
     listen: String,
-    // TODO Using seconds for now for simplicity. Maybe accept duration strings like `1h` instead.
-    /// inactivity timeout in seconds
-    #[argh(option, short = 't', default = "0")]
-    timeout: u64,
     /// write text document to disk on save, and enable `/files` endpoint
     #[argh(switch, short = 's')]
     sync: bool,
@@ -46,9 +41,6 @@ struct Options {
     version: bool,
 }
 
-// Large enough value used to disable inactivity timeout.
-const NO_TIMEOUT: u64 = 60 * 60 * 24 * 30 * 12;
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
@@ -56,11 +48,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let (opts, command) = get_opts_and_command();
-    let timeout = if opts.timeout == 0 {
-        Duration::from_secs(NO_TIMEOUT)
-    } else {
-        Duration::from_secs(opts.timeout)
-    };
 
     let cwd = std::env::current_dir()?;
     // TODO Move these to `api` module.
@@ -75,7 +62,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         sync: opts.sync,
         remap: opts.remap,
         cwd: Url::from_directory_path(&cwd).expect("valid url from current dir"),
-        timeout,
     });
     let healthz = warp::path::end().and(warp::get()).map(|| "OK");
     let addr = opts.listen.parse::<SocketAddr>().expect("valid addr");

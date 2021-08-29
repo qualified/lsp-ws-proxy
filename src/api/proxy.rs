@@ -4,11 +4,7 @@ use futures_util::{
     future::{select, Either},
     SinkExt, StreamExt,
 };
-use tokio::{
-    fs,
-    process::Command,
-    time::{Duration, Instant},
-};
+use tokio::{fs, process::Command};
 use url::Url;
 use warp::{Filter, Rejection, Reply};
 
@@ -22,7 +18,6 @@ pub struct Context {
     pub sync: bool,
     pub remap: bool,
     pub cwd: Url,
-    pub timeout: Duration,
 }
 
 /// Handler for WebSocket connection.
@@ -81,13 +76,11 @@ async fn connected(
 
     let mut client_msg = client_recv.next();
     let mut server_msg = server_recv.next();
-    let timer = tokio::time::sleep(ctx.timeout);
-    tokio::pin!(timer);
 
     loop {
-        match select(select(client_msg, server_msg), timer).await {
+        match select(client_msg, server_msg).await {
             // From Client
-            Either::Left((Either::Left((from_client, p_server_msg)), p_timer)) => {
+            Either::Left((from_client, p_server_msg)) => {
                 match from_client {
                     // Valid LSP message
                     Some(Ok(Message::Message(mut msg))) => {
@@ -130,12 +123,10 @@ async fn connected(
 
                 client_msg = client_recv.next();
                 server_msg = p_server_msg;
-                timer = p_timer;
-                timer.as_mut().reset(Instant::now() + ctx.timeout);
             }
 
             // From Server
-            Either::Left((Either::Right((from_server, p_client_msg)), p_timer)) => {
+            Either::Right((from_server, p_client_msg)) => {
                 match from_server {
                     // Serialized LSP Message
                     Some(Ok(text)) => {
@@ -171,14 +162,6 @@ async fn connected(
 
                 client_msg = p_client_msg;
                 server_msg = server_recv.next();
-                timer = p_timer;
-                timer.as_mut().reset(Instant::now() + ctx.timeout);
-            }
-
-            Either::Right(_) => {
-                tracing::info!("inactivity timeout reached, closing");
-                client_send.send(warp::ws::Message::close()).await?;
-                break;
             }
         }
     }
