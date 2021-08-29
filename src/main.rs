@@ -3,7 +3,7 @@ use std::net::SocketAddr;
 use argh::FromArgs;
 use tokio::time::Duration;
 use url::Url;
-use warp::Filter;
+use warp::{http, Filter};
 
 mod api;
 mod lsp;
@@ -63,6 +63,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let cwd = std::env::current_dir()?;
+    // TODO Move these to `api` module.
+    let cors = warp::cors()
+        .allow_any_origin()
+        .allow_headers(&[http::header::CONTENT_TYPE])
+        .allow_methods(&[http::Method::GET, http::Method::OPTIONS, http::Method::POST]);
     // TODO Limit concurrent connection. Can get messy when `sync` is used.
     // TODO? Keep track of added files and remove them on disconnect?
     let proxy = api::proxy::handler(api::proxy::Context {
@@ -80,11 +85,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             cwd,
             remap: opts.remap,
         });
-        warp::serve(proxy.or(healthz).or(files).recover(api::recover))
+        warp::serve(proxy.or(healthz).or(files).recover(api::recover).with(cors))
             .run(addr)
             .await;
     } else {
-        warp::serve(proxy.or(healthz).recover(api::recover))
+        warp::serve(proxy.or(healthz).recover(api::recover).with(cors))
             .run(addr)
             .await;
     }
