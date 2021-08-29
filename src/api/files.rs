@@ -98,7 +98,7 @@ impl Operation {
                     })?;
 
                 Ok(vec![FileEvent::new(
-                    path_uri(path, &apath, remap),
+                    path_uri(&cwd, path, false, remap),
                     if create {
                         FileChangeType::Created
                     } else {
@@ -121,7 +121,7 @@ impl Operation {
                 remove_empty_parents(&cwd, path).await;
 
                 Ok(vec![FileEvent::new(
-                    path_uri(path, &apath, remap),
+                    path_uri(&cwd, path, false, remap),
                     FileChangeType::Deleted,
                 )])
             }
@@ -144,10 +144,11 @@ impl Operation {
                     })?;
                 remove_empty_parents(&cwd, from).await;
 
+                let is_dir = dst.is_dir();
                 Ok(vec![
-                    FileEvent::new(path_uri(from, &src, remap), FileChangeType::Deleted),
+                    FileEvent::new(path_uri(&cwd, from, is_dir, remap), FileChangeType::Deleted),
                     FileEvent::new(
-                        path_uri(to, &dst, remap),
+                        path_uri(&cwd, to, is_dir, remap),
                         if create {
                             FileChangeType::Created
                         } else {
@@ -203,27 +204,53 @@ where
     }
 }
 
-fn path_uri<P>(rel_path: &str, abs_path: P, remap: bool) -> Url
+fn path_uri<P>(cwd: P, path: &str, is_dir: bool, remap: bool) -> Url
 where
     P: AsRef<Path>,
 {
-    let is_dir = abs_path.as_ref().is_dir();
     if remap {
         let uri = format!(
             "source://{}{}",
-            rel_path,
-            if is_dir && !rel_path.ends_with('/') {
+            path,
+            if is_dir && !path.ends_with('/') {
                 "/"
             } else {
                 ""
             }
         );
         Url::parse(&uri).expect("valid uri")
-    } else if is_dir {
-        Url::from_directory_path(&abs_path).expect("no error with absolute path")
     } else {
-        Url::from_file_path(&abs_path).expect("no error with absolute path")
+        let path = cwd.as_ref().join(path);
+        if is_dir {
+            Url::from_directory_path(&path).expect("no error")
+        } else {
+            Url::from_file_path(&path).expect("no error")
+        }
     }
+}
+
+#[test]
+fn test_path_uri() {
+    let cwd = "/tmp";
+    let path = "foo";
+    let is_dir = true;
+    let remap = true;
+    assert_eq!(
+        path_uri(cwd, path, is_dir, remap).to_string(),
+        "source://foo/"
+    );
+    assert_eq!(
+        path_uri(cwd, path, !is_dir, remap).to_string(),
+        "source://foo"
+    );
+    assert_eq!(
+        path_uri(cwd, path, is_dir, !remap).to_string(),
+        "file:///tmp/foo/"
+    );
+    assert_eq!(
+        path_uri(cwd, path, !is_dir, !remap).to_string(),
+        "file:///tmp/foo"
+    );
 }
 
 #[derive(Debug, serde::Serialize)]
