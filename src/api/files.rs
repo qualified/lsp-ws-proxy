@@ -13,8 +13,8 @@ use super::{json_body, json_response, with_context};
 
 #[derive(Debug, Error)]
 enum Error {
-    #[error("path {0} must be relative")]
-    NotRelativePath(String),
+    #[error("{0} is not under the project root")]
+    NotProjectPath(String),
 
     #[error("failed to create dirs {path}: {source}")]
     CreateDirs {
@@ -84,11 +84,9 @@ impl Operation {
     {
         match self {
             Operation::Write { path, contents } => {
-                ensure_relative(path)?;
-
-                create_parent_dirs(&cwd, path).await?;
+                let apath = get_path(&cwd, path)?;
                 tracing::debug!("writing file {:?}", path);
-                let apath = cwd.as_ref().join(path);
+                create_parent_dirs(&cwd, path).await?;
                 let create = !apath.exists();
                 fs::write(&apath, contents.as_bytes())
                     .await
@@ -108,10 +106,8 @@ impl Operation {
             }
 
             Operation::Remove { path } => {
-                ensure_relative(path)?;
-
+                let apath = get_path(&cwd, path)?;
                 tracing::debug!("removing file {:?}", path);
-                let apath = cwd.as_ref().join(path);
                 fs::remove_file(&apath)
                     .await
                     .map_err(|source| Error::RemoveFile {
@@ -127,13 +123,11 @@ impl Operation {
             }
 
             Operation::Rename { from, to } => {
-                ensure_relative(from)?;
-                ensure_relative(to)?;
+                let src = get_path(&cwd, from)?;
+                let dst = get_path(&cwd, to)?;
 
-                create_parent_dirs(&cwd, to).await?;
                 tracing::debug!("renaming file {:?} to {:?}", from, to);
-                let src = cwd.as_ref().join(from);
-                let dst = cwd.as_ref().join(to);
+                create_parent_dirs(&cwd, to).await?;
                 let create = !dst.exists();
                 fs::rename(&src, &dst)
                     .await
@@ -161,12 +155,15 @@ impl Operation {
     }
 }
 
-fn ensure_relative(path: &str) -> Result<(), Error> {
-    if Path::new(path).is_absolute() {
-        Err(Error::NotRelativePath(path.to_owned()))
-    } else {
-        Ok(())
+fn get_path<P>(cwd: P, path: &str) -> Result<PathBuf, Error>
+where
+    P: AsRef<Path>,
+{
+    let apath = cwd.as_ref().join(path);
+    if !apath.starts_with(&cwd) {
+        return Err(Error::NotProjectPath(path.to_owned()));
     }
+    Ok(apath)
 }
 
 async fn create_parent_dirs<P, Q>(cwd: P, path: Q) -> Result<(), Error>
