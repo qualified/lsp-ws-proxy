@@ -1,4 +1,4 @@
-use std::{process::Stdio, str::FromStr};
+use std::{convert::Infallible, process::Stdio, str::FromStr};
 
 use futures_util::{
     future::{select, Either},
@@ -14,10 +14,27 @@ use super::with_context;
 
 #[derive(Debug, Clone)]
 pub struct Context {
-    pub command: Vec<String>,
+    /// One or more commands to start a Language Server.
+    pub commands: Vec<Vec<String>>,
+    /// Write file on save.
     pub sync: bool,
+    /// Remap relative `source://` to absolute `file://`.
     pub remap: bool,
+    /// Project root.
     pub cwd: Url,
+}
+
+#[derive(Clone, Debug, serde::Deserialize)]
+struct Query {
+    /// The command name of the Language Server to start.
+    /// If not specified, the first one is started.
+    name: String,
+}
+
+fn with_optional_query() -> impl Filter<Extract = (Option<Query>,), Error = Infallible> + Clone {
+    warp::query::<Query>()
+        .map(Some)
+        .or_else(|_| async { Ok::<(Option<Query>,), Infallible>((None,)) })
 }
 
 /// Handler for WebSocket connection.
@@ -25,7 +42,10 @@ pub fn handler(ctx: Context) -> impl Filter<Extract = impl Reply, Error = Reject
     warp::path::end()
         .and(warp::ws())
         .and(with_context(ctx))
-        .map(|ws: warp::ws::Ws, ctx| ws.on_upgrade(move |socket| on_upgrade(socket, ctx)))
+        .and(with_optional_query())
+        .map(|ws: warp::ws::Ws, ctx, query| {
+            ws.on_upgrade(move |socket| on_upgrade(socket, ctx, query))
+        })
 }
 
 #[tracing::instrument(level = "debug", err, skip(msg))]
@@ -47,27 +67,42 @@ async fn maybe_write_text_document(msg: &lsp::Message) -> Result<(), std::io::Er
     Ok(())
 }
 
-async fn on_upgrade(socket: warp::ws::WebSocket, ctx: Context) {
+async fn on_upgrade(socket: warp::ws::WebSocket, ctx: Context, query: Option<Query>) {
     tracing::info!("connected");
-    if let Err(err) = connected(socket, ctx).await {
+    if let Err(err) = connected(socket, ctx, query).await {
         tracing::error!("connection error: {}", err);
     }
     tracing::info!("disconnected");
 }
 
-#[tracing::instrument(level = "debug", skip(ws, ctx), fields(command = ?ctx.command[0], remap = %ctx.remap, sync = %ctx.sync))]
+#[tracing::instrument(level = "debug", skip(ws, ctx), fields(remap = %ctx.remap, sync = %ctx.sync))]
 async fn connected(
     ws: warp::ws::WebSocket,
     ctx: Context,
+    query: Option<Query>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    tracing::info!("starting {} in {}", ctx.command[0], ctx.cwd);
-    let mut server = Command::new(&ctx.command[0])
-        .args(&ctx.command[1..])
+    let command = if let Some(query) = query {
+        if let Some(command) = ctx.commands.iter().find(|v| v[0] == query.name) {
+            command
+        } else {
+            // TODO Validate this earlier and reject, or close immediately.
+            tracing::warn!(
+                "Unknown Language Server '{}', falling back to the default",
+                query.name
+            );
+            &ctx.commands[0]
+        }
+    } else {
+        &ctx.commands[0]
+    };
+    tracing::info!("starting {} in {}", command[0], ctx.cwd);
+    let mut server = Command::new(&command[0])
+        .args(&command[1..])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .kill_on_drop(true)
         .spawn()?;
-    tracing::debug!("running {}", ctx.command[0]);
+    tracing::debug!("running {}", command[0]);
 
     let mut server_send = lsp::framed::writer(server.stdin.take().unwrap());
     let mut server_recv = lsp::framed::reader(server.stdout.take().unwrap());

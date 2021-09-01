@@ -14,12 +14,21 @@ mod lsp;
 Start WebSocket proxy for the LSP Server.
 Anything after the option delimiter is used to start the server.
 
+Multiple servers can be registered by separating each with an option delimiter,
+and using the query parameter `name` to specify the command name on connection.
+If no query parameter is present, the first one is started.
+
 Examples:
-  lsp-ws-proxy -- langserver
-  lsp-ws-proxy -- langserver --stdio
-  lsp-ws-proxy --listen 8888 -- langserver --stdio
-  lsp-ws-proxy --listen 0.0.0.0:8888 -- langserver --stdio
-  lsp-ws-proxy -l 8888 -- langserver --stdio
+  lsp-ws-proxy -- rust-analyzer
+  lsp-ws-proxy -- typescript-language-server --stdio
+  lsp-ws-proxy --listen 8888 -- rust-analyzer
+  lsp-ws-proxy --listen 0.0.0.0:8888 -- rust-analyzer
+  # Register multiple servers.
+  # Choose the server with query parameter `name` when connecting.
+  lsp-ws-proxy --listen 9999 --sync --remap \
+    -- typescript-language-server --stdio \
+    -- css-languageserver --stdio \
+    -- html-languageserver --stdio
 */
 struct Options {
     /// address or port to listen on (default: 0.0.0.0:9999)
@@ -47,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".to_owned()))
         .init();
 
-    let (opts, command) = get_opts_and_command();
+    let (opts, commands) = get_opts_and_commands();
 
     let cwd = std::env::current_dir()?;
     // TODO Move these to `api` module.
@@ -58,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO Limit concurrent connection. Can get messy when `sync` is used.
     // TODO? Keep track of added files and remove them on disconnect?
     let proxy = api::proxy::handler(api::proxy::Context {
-        command,
+        commands,
         sync: opts.sync,
         remap: opts.remap,
         cwd: Url::from_directory_path(&cwd).expect("valid url from current dir"),
@@ -82,9 +91,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn get_opts_and_command() -> (Options, Vec<String>) {
-    let strings: Vec<String> = std::env::args().collect();
-    let splitted: Vec<&[String]> = strings.splitn(2, |s| *s == "--").collect();
+fn get_opts_and_commands() -> (Options, Vec<Vec<String>>) {
+    let args: Vec<String> = std::env::args().collect();
+    let splitted: Vec<Vec<String>> = args.split(|s| *s == "--").map(|s| s.to_vec()).collect();
     let strs: Vec<&str> = splitted[0].iter().map(|s| s.as_str()).collect();
 
     // Parse options or show help and exit.
@@ -102,11 +111,12 @@ fn get_opts_and_command() -> (Options, Vec<String>) {
         std::process::exit(0);
     }
 
-    if splitted.len() != 2 {
+    if splitted.len() < 2 {
         panic!("Command to start the server is required. See --help for examples.");
     }
 
-    (opts, splitted[1].to_vec())
+    let commands = splitted[1..].iter().map(|s| s.to_owned()).collect();
+    (opts, commands)
 }
 
 fn parse_listen(value: &str) -> Result<String, String> {

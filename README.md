@@ -12,12 +12,21 @@ Usage: lsp-ws-proxy [-l <listen>] [-s] [-r] [-v]
 Start WebSocket proxy for the LSP Server.
 Anything after the option delimiter is used to start the server.
 
+Multiple servers can be registered by separating each with an option delimiter,
+and using the query parameter `name` to specify the command name on connection.
+If no query parameter is present, the first one is started.
+
 Examples:
-  lsp-ws-proxy -- langserver
-  lsp-ws-proxy -- langserver --stdio
-  lsp-ws-proxy --listen 8888 -- langserver --stdio
-  lsp-ws-proxy --listen 0.0.0.0:8888 -- langserver --stdio
-  lsp-ws-proxy -l 8888 -- langserver --stdio
+  lsp-ws-proxy -- rust-analyzer
+  lsp-ws-proxy -- typescript-language-server --stdio
+  lsp-ws-proxy --listen 8888 -- rust-analyzer
+  lsp-ws-proxy --listen 0.0.0.0:8888 -- rust-analyzer
+  # Register multiple servers.
+  # Choose the server with query parameter `name` when connecting.
+  lsp-ws-proxy --listen 9999 --sync --remap \
+    -- typescript-language-server --stdio \
+    -- css-languageserver --stdio \
+    -- html-languageserver --stdio
 
 Options:
   -l, --listen      address or port to listen on (default: 0.0.0.0:9999)
