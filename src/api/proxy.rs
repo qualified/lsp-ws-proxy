@@ -44,7 +44,8 @@ pub fn handler(ctx: Context) -> impl Filter<Extract = impl Reply, Error = Reject
         .and(with_context(ctx))
         .and(with_optional_query())
         .map(|ws: warp::ws::Ws, ctx, query| {
-            ws.on_upgrade(move |socket| on_upgrade(socket, ctx, query))
+            ws.with_compression()
+                .on_upgrade(move |socket| on_upgrade(socket, ctx, query))
         })
 }
 
