@@ -429,7 +429,7 @@ dependencies = [
 
 [[package]]
 name = "lsp-ws-proxy"
-version = "0.8.0"
+version = "0.9.0-rc.1"
 dependencies = [
  "argh",
  "bytes",
