@@ -18,6 +18,7 @@ use types::Unknown;
 
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum Message {
     Request(Request),
 

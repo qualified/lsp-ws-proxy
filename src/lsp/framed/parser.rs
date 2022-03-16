@@ -24,7 +24,7 @@ pub fn parse_message(input: &[u8]) -> IResult<&[u8], &[u8]> {
 
     let header = terminated(terminated(content_len, opt(content_type)), crlf);
 
-    let header = map_res(header, |s: &[u8]| str::from_utf8(s));
+    let header = map_res(header, str::from_utf8);
     let length = map_res(header, |s: &str| s.parse::<usize>());
     let mut message = length_data(length);
 

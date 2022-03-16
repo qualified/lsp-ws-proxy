@@ -230,6 +230,7 @@ async fn connected(
 
 // Type to describe a message from the client conveniently.
 #[allow(clippy::large_enum_variant)]
+#[allow(clippy::enum_variant_names)]
 enum Message {
     // Valid LSP message
     Message(lsp::Message),
