@@ -10,6 +10,7 @@ use super::types::Id;
 /// [Request message]: https://microsoft.github.io/language-server-protocol/specifications/specification-current/#requestMessage
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "method")]
+#[allow(clippy::large_enum_variant)]
 pub enum Request {
     // To Server
     /// > The [initialize] request is sent as the first request from the client

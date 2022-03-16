@@ -2,7 +2,7 @@ use std::{convert::Infallible, process::Stdio, str::FromStr};
 
 use futures_util::{
     future::{select, Either},
-    SinkExt, StreamExt,
+    stream, SinkExt, StreamExt,
 };
 use tokio::{fs, process::Command};
 use url::Url;
@@ -108,7 +108,19 @@ async fn connected(
     let mut server_send = lsp::framed::writer(server.stdin.take().unwrap());
     let mut server_recv = lsp::framed::reader(server.stdout.take().unwrap());
     let (mut client_send, client_recv) = ws.split();
-    let mut client_recv = client_recv.filter_map(filter_map_warp_ws_message).boxed();
+    let client_recv = client_recv
+        .filter_map(filter_map_warp_ws_message)
+        // Chain this with `Done` so we know when the client disconnects
+        .chain(stream::once(async { Ok(Message::Done) }));
+    // Tick every 30s so we can ping the client to keep the connection alive
+    let ticks = stream::unfold(
+        tokio::time::interval(std::time::Duration::from_secs(30)),
+        |mut interval| async move {
+            interval.tick().await;
+            Some((Ok(Message::Tick), interval))
+        },
+    );
+    let mut client_recv = stream::select(client_recv, ticks).boxed();
 
     let mut client_msg = client_recv.next();
     let mut server_msg = server_recv.next();
@@ -145,15 +157,26 @@ async fn connected(
                         tracing::info!("received Close message");
                     }
 
+                    // Ping the client to keep the connection alive
+                    Some(Ok(Message::Tick)) => {
+                        tracing::debug!("pinging the client");
+                        client_send.send(warp::ws::Message::ping(vec![])).await?;
+                    }
+
+                    // Connection closed
+                    Some(Ok(Message::Done)) => {
+                        tracing::info!("connection closed");
+                        break;
+                    }
+
                     // WebSocket Error
                     Some(Err(err)) => {
                         tracing::error!("websocket error: {}", err);
                     }
 
-                    // Connection closed
                     None => {
-                        tracing::info!("connection closed");
-                        break;
+                        // Unreachable because of the interval stream
+                        unreachable!("should never yield None");
                     }
                 }
 
@@ -206,6 +229,8 @@ async fn connected(
 }
 
 // Type to describe a message from the client conveniently.
+#[allow(clippy::large_enum_variant)]
+#[allow(clippy::enum_variant_names)]
 enum Message {
     // Valid LSP message
     Message(lsp::Message),
@@ -213,6 +238,11 @@ enum Message {
     Invalid(String),
     // Close message
     Close,
+    // Ping the client to keep the connection alive.
+    // Note that this is from the interval stream and not actually from client.
+    Tick,
+    // Client disconnected. Necessary because the combined stream is infinite.
+    Done,
 }
 
 // Parse the message and ignore anything we don't care.
