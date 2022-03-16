@@ -956,7 +956,7 @@ dependencies = [
 [[package]]
 name = "tokio-tungstenite"
 version = "0.15.0"
-source = "git+https://github.com/kazk/tokio-tungstenite?branch=permessage-deflate#219d6ce9a27e6fd0a2d36e352591d3c02920e16e"
+source = "git+https://github.com/kazk/tokio-tungstenite?branch=permessage-deflate#4133a28b800529ec920ebe052496785e1cf37b3a"
 dependencies = [
  "futures-util",
  "log",
@@ -1069,7 +1069,7 @@ checksum = "59547bce71d9c38b83d9c0e92b6066c4253371f15005def0c30d9657f50c7642"
 [[package]]
 name = "tungstenite"
 version = "0.15.0"
-source = "git+https://github.com/kazk/tungstenite-rs?branch=permessage-deflate#54acf30635482227e748d53293f8f4672300cf0b"
+source = "git+https://github.com/kazk/tungstenite-rs?branch=permessage-deflate#734a0b983070d7f965c984d5489c5be038e01530"
 dependencies = [
  "base64",
  "byteorder",
@@ -1168,7 +1168,7 @@ dependencies = [
 [[package]]
 name = "warp"
 version = "0.3.1"
-source = "git+https://github.com/kazk/warp?branch=permessage-deflate#d6ea7ccbe26207edeac81dfe7527ff59962d1ac8"
+source = "git+https://github.com/kazk/warp?branch=permessage-deflate#a7425b320916e6f25e4f77b09ddd24490ccf62a4"
 dependencies = [
  "bytes",
  "futures",
