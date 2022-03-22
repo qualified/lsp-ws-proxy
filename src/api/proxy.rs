@@ -124,6 +124,8 @@ async fn connected(
 
     let mut client_msg = client_recv.next();
     let mut server_msg = server_recv.next();
+    // Keeps track if `pong` was received since sending the last `ping`.
+    let mut is_alive = true;
 
     loop {
         match select(client_msg, server_msg).await {
@@ -159,8 +161,21 @@ async fn connected(
 
                     // Ping the client to keep the connection alive
                     Some(Ok(Message::Tick)) => {
+                        // Terminate if we haven't heard back from the previous ping.
+                        if !is_alive {
+                            tracing::warn!("terminating unhealthy connection");
+                            break;
+                        }
+
+                        is_alive = false;
                         tracing::debug!("pinging the client");
                         client_send.send(warp::ws::Message::ping(vec![])).await?;
+                    }
+
+                    // Mark the connection as alive on any pong.
+                    Some(Ok(Message::Pong)) => {
+                        tracing::debug!("received pong");
+                        is_alive = true;
                     }
 
                     // Connection closed
@@ -243,6 +258,8 @@ enum Message {
     Tick,
     // Client disconnected. Necessary because the combined stream is infinite.
     Done,
+    // A reply for ping or heartbeat from client.
+    Pong,
 }
 
 // Parse the message and ignore anything we don't care.
@@ -259,6 +276,8 @@ async fn filter_map_warp_ws_message(
                     Ok(msg) => Some(Ok(Message::Message(msg))),
                     Err(_) => Some(Ok(Message::Invalid(text.to_owned()))),
                 }
+            } else if msg.is_pong() {
+                Some(Ok(Message::Pong))
             } else {
                 // Ignore any other message types
                 None
