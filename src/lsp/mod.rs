@@ -107,13 +107,7 @@ impl Serialize for Message {
                 wrapped.serialize(serializer)
             }
 
-            Self::Unknown(unknown) => {
-                let wrapped = WithJsonRpc {
-                    jsonrpc: "2.0",
-                    msg: &unknown,
-                };
-                wrapped.serialize(serializer)
-            }
+            Self::Unknown(unknown) => unknown.serialize(serializer),
         }
     }
 }
@@ -154,5 +148,13 @@ mod tests {
         let from_str: Message = serde_json::from_str(&v.to_string()).unwrap();
         let from_value: Message = serde_json::from_value(v).unwrap();
         assert_eq!(from_str, from_value);
+    }
+
+    #[test]
+    fn test_serialize_unknown_notification() {
+        let v = json!({"jsonrpc":"2.0","method":"language/status","params":{"message":""}});
+        let s = v.to_string();
+        let from_value: Message = serde_json::from_value(v).unwrap();
+        assert_eq!(serde_json::to_string(&from_value).unwrap(), s);
     }
 }
