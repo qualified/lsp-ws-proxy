@@ -32,11 +32,4 @@ pub enum Params {
 
 /// Unknown message type.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Unknown {
-    #[serde(default)]
-    pub id: Option<Id>,
-    #[serde(default)]
-    pub method: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub params: Option<Params>,
-}
+pub struct Unknown(serde_json::Value);
